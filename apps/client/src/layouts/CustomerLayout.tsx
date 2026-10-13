@@ -29,63 +29,71 @@ export const CustomerLayout: React.FC = () => {
           </Link>
 
           <nav className="flex items-center gap-4 sm:gap-5 text-sm font-medium text-slate-200 flex-wrap">
-            <Link to="/" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <Cpu className="w-4 h-4 text-blue-400" />
-              <span>Catalogue</span>
-            </Link>
-            <Link to="/compatibility" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Compatibility</span>
-            </Link>
-            <Link to="/wanted" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <Search className="w-4 h-4 text-amber-400" />
-              <span>Wanted Parts</span>
-            </Link>
-            <Link to="/policies" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-slate-400" />
-              <span>Policies</span>
-            </Link>
-            <Link
-              to="/cart"
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white flex items-center gap-2 border border-slate-700"
-            >
-              <ShoppingCart className="w-4 h-4 text-blue-400" />
-              <span>Cart</span>
-            </Link>
-
             {user ? (
-              <div className="flex items-center gap-2">
-                <Link
-                  to="/account"
-                  className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-200 flex items-center gap-1.5 border border-blue-500/30"
-                >
-                  <User className="w-4 h-4" />
-                  <span>{user.fullName.split(' ')[0]}</span>
+              <>
+                <Link to="/" className="hover:text-white transition-colors flex items-center gap-1.5">
+                  <Cpu className="w-4 h-4 text-blue-400" />
+                  <span>Catalogue</span>
                 </Link>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  title="Sign out"
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-900/40 text-slate-300 hover:text-red-200 border border-slate-700 cursor-pointer"
+                <Link to="/compatibility" className="hover:text-white transition-colors flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Compatibility</span>
+                </Link>
+                <Link to="/wanted" className="hover:text-white transition-colors flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-amber-400" />
+                  <span>Wanted Parts</span>
+                </Link>
+                <Link to="/policies" className="hover:text-white transition-colors flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  <span>Policies</span>
+                </Link>
+                <Link
+                  to="/cart"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white flex items-center gap-2 border border-slate-700"
                 >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
+                  <ShoppingCart className="w-4 h-4 text-blue-400" />
+                  <span>Cart</span>
+                </Link>
+
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/account"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-200 flex items-center gap-1.5 border border-blue-500/30"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>{user.fullName.split(' ')[0]}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    title="Sign out"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-900/40 text-slate-300 hover:text-red-200 border border-slate-700 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              </>
             ) : (
-              <div className="flex items-center gap-2">
-                <Link
-                  to="/login"
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
-                >
-                  Sign In
+              <>
+                <Link to="/policies" className="hover:text-white transition-colors flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  <span>Policies</span>
                 </Link>
-                <Link
-                  to="/register"
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold"
-                >
-                  Register
-                </Link>
-              </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/login"
+                    className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                  >
+                    Register
+                  </Link>
+                </div>
+              </>
             )}
           </nav>
         </div>

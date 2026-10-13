@@ -18,6 +18,7 @@ export const ServerEnvSchema = z.object({
   MONGODB_URI: z.string().min(10, 'MONGODB_URI is required and must be a valid MongoDB URI'),
   CLIENT_URL: z.string().url('CLIENT_URL must be a valid URL'),
   ADMIN_URL: z.string().url('ADMIN_URL must be a valid URL'),
+  SELLER_URL: z.string().url('SELLER_URL must be a valid URL').default('http://localhost:5175'),
   SESSION_SECRET: z.string().min(16, 'SESSION_SECRET must be at least 16 characters long'),
   STORAGE_PROVIDER: z.enum(['cloudinary', 's3', 'local']).default('local'),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
@@ -27,6 +28,8 @@ export const ServerEnvSchema = z.object({
   PAYMENT_SECRET_KEY: z.string().min(4).default('sandbox_secret_key'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(4).default('sandbox_webhook_secret'),
   EMAIL_PROVIDER_API_KEY: z.string().min(4).default('sandbox_email_key'),
+  ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
+  ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;
@@ -61,7 +64,17 @@ export const RegisterSchema = z
     password: PasswordStrengthSchema,
     confirmPassword: z.string().optional(),
     acceptTerms: z.boolean().optional().default(true),
+    role: z.string().optional().default('customer'),
+    storeName: z.string().max(80).trim().optional(),
+    businessAddress: z.string().max(300).trim().optional(),
   })
+  .refine(
+    (data) => !data.role || data.role === 'customer' || data.role === 'seller',
+    {
+      message: 'Public registration cannot specify an administrative role. Allowed categories are customer or seller.',
+      path: ['role'],
+    }
+  )
   .refine(
     (data) => !data.confirmPassword || data.password === data.confirmPassword,
     {
@@ -255,16 +268,55 @@ export const CreateReviewSchema = z.object({
 });
 
 export const CreateWantedRequestSchema = z.object({
-  deviceId: z.string().min(1),
-  componentType: z.string().min(2).max(80).trim(),
-  description: z.string().min(10).max(1000).trim(),
-  maxBudgetPaise: z.number().int().positive(),
+  deviceId: z.string().optional(),
+  category: z.string().max(100).trim().optional().default('Smartphones'),
+  brand: z.string().max(100).trim().optional().default('Generic'),
+  deviceModel: z.string().max(150).trim().optional().default('Various'),
+  partNumber: z.string().max(100).trim().optional(),
+  componentType: z.string().min(2).max(120).trim(),
+  description: z.string().min(5).max(2000).trim(),
+  quantity: z.coerce.number().int().min(1).max(100).default(1),
+  requiredCondition: z.enum(['any', 'new', 'refurbished', 'used']).default('any'),
+  maxBudgetPaise: z.coerce.number().int().min(0).default(0),
+  deliveryCity: z.string().max(100).trim().optional(),
+  deliveryPostalCode: z.string().max(20).trim().optional(),
+  preferredDeliveryDate: z.string().optional(),
+  expiresAt: z.string().optional(),
+  photoAssetIds: z.array(z.string()).default([]),
+});
+
+export const UpdateWantedRequestSchema = z.object({
+  description: z.string().min(5).max(2000).trim().optional(),
+  maxBudgetPaise: z.coerce.number().int().min(0).optional(),
+  quantity: z.coerce.number().int().min(1).max(100).optional(),
+  requiredCondition: z.enum(['any', 'new', 'refurbished', 'used']).optional(),
+  deliveryCity: z.string().max(100).trim().optional(),
+  deliveryPostalCode: z.string().max(20).trim().optional(),
+  preferredDeliveryDate: z.string().optional(),
+  expiresAt: z.string().optional(),
 });
 
 export const CreateWantedOfferSchema = z.object({
-  listingId: z.string().min(1),
-  offeredPricePaise: z.number().int().positive(),
-  notes: z.string().max(500).optional(),
+  listingId: z.string().optional(),
+  offeredPricePaise: z.coerce.number().int().positive('Offered price must be a positive integer in paise'),
+  availableQuantity: z.coerce.number().int().min(1).default(1),
+  condition: z.enum(['new', 'refurbished', 'used']).default('new'),
+  compatibilityEvidence: z.string().max(1000).trim().optional(),
+  warrantyDays: z.coerce.number().int().min(0).default(30),
+  shippingCostPaise: z.coerce.number().int().min(0).default(0),
+  estimatedDeliveryDays: z.coerce.number().int().min(1).default(3),
+  notes: z.string().max(1000).optional(),
+});
+
+export const UpdateWantedOfferSchema = z.object({
+  offeredPricePaise: z.coerce.number().int().positive().optional(),
+  availableQuantity: z.coerce.number().int().min(1).optional(),
+  condition: z.enum(['new', 'refurbished', 'used']).optional(),
+  compatibilityEvidence: z.string().max(1000).trim().optional(),
+  warrantyDays: z.coerce.number().int().min(0).optional(),
+  shippingCostPaise: z.coerce.number().int().min(0).optional(),
+  estimatedDeliveryDays: z.coerce.number().int().min(1).optional(),
+  notes: z.string().max(1000).optional(),
 });
 
 export const CreateDisputeSchema = z.object({

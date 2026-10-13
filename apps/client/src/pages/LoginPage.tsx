@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getCrossAppUrlForRole } from '../lib/urls';
 
 export const LoginPage: React.FC = () => {
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -14,12 +15,28 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const getSafeRedirect = (): string => {
+    const params = new URLSearchParams(location.search);
+    const redirectParam = params.get('redirect');
+    if (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//')) {
+      return redirectParam;
+    }
     const stateFrom = (location.state as { from?: string } | null)?.from;
     if (stateFrom && stateFrom.startsWith('/') && !stateFrom.startsWith('//')) {
       return stateFrom;
     }
     return '/';
   };
+
+  useEffect(() => {
+    if (user) {
+      const crossUrl = getCrossAppUrlForRole(user.role);
+      if (crossUrl) {
+        window.location.href = crossUrl;
+      } else {
+        navigate(getSafeRedirect(), { replace: true });
+      }
+    }
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +48,12 @@ export const LoginPage: React.FC = () => {
 
     setSubmitting(true);
     try {
-      await login({ email: email.trim().toLowerCase(), password });
+      const loggedIn = await login({ email: email.trim().toLowerCase(), password });
+      const crossUrl = getCrossAppUrlForRole(loggedIn.role);
+      if (crossUrl) {
+        window.location.href = crossUrl;
+        return;
+      }
       navigate(getSafeRedirect(), { replace: true });
     } catch (err: any) {
       setError(err.message || 'Invalid email or password.');
@@ -132,3 +154,4 @@ export const LoginPage: React.FC = () => {
     </div>
   );
 };
+

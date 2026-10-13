@@ -342,5 +342,146 @@ describe('Phase 4 — Commerce: Server-Recalculated Cart, Atomic Stock, Multi-Se
     expect(releasedListing?.stockAvailable).toBe(1);
     expect(releasedListing?.stockReserved).toBe(0);
   });
+
+  it('flags suspended listings in cart, restores stock on pre-shipment order cancellation, and never marks a failed gateway refund as refunded', async () => {
+    const [buyer, seller, admin] = await Promise.all([
+      UserModel.create({ email: 'c_edge@fixme.com', fullName: 'Edge Buyer', passwordHash: 'hash', role: 'customer' }),
+      UserModel.create({ email: 's_edge@fixme.com', fullName: 'Edge Seller', passwordHash: 'hash', role: 'seller' }),
+      UserModel.create({ email: 'a_edge@fixme.com', fullName: 'Edge Admin', passwordHash: 'hash', role: 'administrator' }),
+    ]);
+
+    const buyerToken = signSessionToken({ id: buyer._id.toString(), email: buyer.email, role: buyer.role, fullName: buyer.fullName });
+    const adminToken = signSessionToken({ id: admin._id.toString(), email: admin.email, role: admin.role, fullName: admin.fullName });
+
+    const cat = await CategoryModel.create({ name: 'Cameras', slug: 'cameras' });
+    const brand = await BrandModel.create({ name: 'Apple', slug: 'apple-cam' });
+    const part = await PartModel.create({
+      categoryId: cat._id,
+      brandId: brand._id,
+      partNumber: 'IP13P-CAM-MOD',
+      name: 'iPhone 13 Pro Rear Camera Module',
+      componentType: 'camera_module',
+      description: 'Triple rear camera assembly',
+    });
+
+    const listing = await ListingModel.create({
+      partId: part._id,
+      sellerId: seller._id,
+      title: 'iPhone 13 Pro Camera OEM Pull',
+      condition: 'used',
+      pricePaise: 650000,
+      stockAvailable: 3,
+      status: 'active',
+    });
+
+    // Add to cart while active
+    await request(app)
+      .post('/api/v1/cart/items')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ listingId: listing._id.toString(), quantity: 1 });
+
+    // Suspend the listing while it is in the buyer's cart
+    await ListingModel.findByIdAndUpdate(listing._id, { status: 'suspended' });
+
+    const suspendedCartRes = await request(app)
+      .get('/api/v1/cart')
+      .set('Authorization', `Bearer ${buyerToken}`);
+
+    expect(suspendedCartRes.status).toBe(200);
+    expect(suspendedCartRes.body.data.items[0].isEligible).toBe(false);
+
+    // Re-activate listing, checkout, and then cancel order before shipment
+    await ListingModel.findByIdAndUpdate(listing._id, { status: 'active' });
+
+    const checkoutRes = await request(app)
+      .post('/api/v1/checkout')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        shippingAddress: {
+          fullName: 'Edge Buyer',
+          phone: '9876543210',
+          line1: '45 Brigade Road',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          postalCode: '560001',
+          country: 'IN',
+        },
+      });
+
+    expect(checkoutRes.status).toBe(201);
+    const cancelOrderId = checkoutRes.body.data.order._id;
+
+    const cancelRes = await request(app)
+      .post(`/api/v1/orders/${cancelOrderId}/cancel`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ reason: 'Ordered wrong model variant' });
+
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.data.status).toBe('cancelled');
+
+    const restoredListing = await ListingModel.findById(listing._id);
+    expect(restoredListing?.stockAvailable).toBe(3);
+    expect(restoredListing?.stockReserved).toBe(0);
+
+    // Create a paid order & return request, then simulate a payment gateway failure during refund
+    await request(app)
+      .post('/api/v1/cart/items')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ listingId: listing._id.toString(), quantity: 1 });
+
+    const checkout2 = await request(app)
+      .post('/api/v1/checkout')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        shippingAddress: {
+          fullName: 'Edge Buyer',
+          phone: '9876543210',
+          line1: '45 Brigade Road',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          postalCode: '560001',
+          country: 'IN',
+        },
+      });
+
+    const order2 = checkout2.body.data.order;
+    const hookPayload = {
+      eventId: 'evt_edge_capture_02',
+      eventType: 'payment.captured' as const,
+      providerOrderId: checkout2.body.data.paymentIntent.providerOrderId,
+      providerPaymentId: 'pay_edge_02',
+      amountPaise: order2.totalPaise,
+    };
+    await request(app)
+      .post('/api/v1/webhooks/payments/razorpay_sandbox')
+      .set('X-Webhook-Signature', PaymentGateway.signWebhookPayload(JSON.stringify(hookPayload)))
+      .send(hookPayload);
+
+    const returnRes = await request(app)
+      .post(`/api/v1/orders/${order2._id}/returns`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        subOrderId: order2.subOrders[0]._id,
+        reason: 'Autofocus sensor malfunction',
+      });
+
+    const returnId = returnRes.body.data._id;
+
+    // Simulate gateway refund failure
+    const failedRefundRes = await request(app)
+      .patch(`/api/v1/returns/${returnId}/process`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        approve: true,
+        resolutionNotes: 'Attempt refund while gateway is down',
+        simulateGatewayFailure: true,
+      });
+
+    expect(failedRefundRes.status).toBe(502);
+    expect(failedRefundRes.body.error.code).toBe('REFUND_GATEWAY_FAILED');
+
+    const checkReturn = await ReturnRequestModel.findById(returnId);
+    expect(checkReturn?.status).toBe('approved'); // Must NOT be falsely marked as 'refunded'
+  });
 });
 

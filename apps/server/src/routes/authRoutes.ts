@@ -131,4 +131,48 @@ router.get(
   ModerationController.listAuditLogs
 );
 
+router.get(
+  '/admin/users',
+  authenticate,
+  requireRole('administrator', 'super_administrator'),
+  ModerationController.listUsers
+);
+
+router.patch(
+  '/admin/users/:id/role',
+  authenticate,
+  requireRole('administrator', 'super_administrator'),
+  validateBody(z.object({ role: z.string() })),
+  ModerationController.updateUserRole
+);
+
+router.patch(
+  '/admin/users/:id/status',
+  authenticate,
+  requireRole('administrator', 'super_administrator'),
+  validateBody(z.object({ isActive: z.boolean() })),
+  ModerationController.updateUserStatus
+);
+
+router.get(
+  '/admin/orders',
+  authenticate,
+  requireRole('support_staff', 'administrator', 'super_administrator'),
+  ModerationController.listAdminOrders
+);
+
+router.get(
+  '/admin/disputes',
+  authenticate,
+  requireRole('support_staff', 'administrator', 'super_administrator'),
+  ModerationController.listAdminDisputes
+);
+
+router.get(
+  '/admin/finance',
+  authenticate,
+  requireRole('administrator', 'super_administrator'),
+  ModerationController.getFinanceReport
+);
+
 export default router;

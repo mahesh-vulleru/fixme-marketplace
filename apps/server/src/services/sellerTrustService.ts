@@ -13,6 +13,58 @@ import { AppError } from '../middleware/errorHandler';
 
 export class SellerTrustService {
   /**
+   * Verifies that the authenticated seller has an approved SellerProfile.
+   */
+  static async requireApprovedSeller(sellerId: string, role?: string): Promise<void> {
+    if (role === 'administrator' || role === 'super_administrator') return;
+    const profile = await SellerProfileModel.findOne({ userId: sellerId });
+    if (!profile || profile.status !== 'approved') {
+      throw new AppError(
+        403,
+        'SELLER_NOT_APPROVED',
+        'Your seller account must be approved by an administrator before performing seller operations'
+      );
+    }
+  }
+
+  /**
+   * Lists listings owned exclusively by the authenticated seller.
+   */
+  static async listMyListings(sellerId: string): Promise<IListingDocument[]> {
+    return ListingModel.find({ sellerId })
+      .populate('partId', 'name partNumber componentType oemReference')
+      .sort({ createdAt: -1 });
+  }
+
+  /**
+   * Creates a listing owned by the authenticated approved seller.
+   */
+  static async createSellerListing(params: {
+    sellerId: string;
+    sellerRole?: string;
+    partId: string;
+    title: string;
+    description?: string;
+    condition: string;
+    pricePaise: number;
+    stockAvailable: number;
+    warrantyDays?: number;
+  }): Promise<IListingDocument> {
+    await this.requireApprovedSeller(params.sellerId, params.sellerRole);
+    return ListingModel.create({
+      partId: params.partId,
+      sellerId: params.sellerId,
+      title: params.title,
+      description: params.description || params.title,
+      condition: params.condition as any,
+      pricePaise: params.pricePaise,
+      stockAvailable: params.stockAvailable,
+      warrantyDays: params.warrantyDays ?? 90,
+      status: 'pending_review',
+    });
+  }
+
+  /**
    * Adjusts seller listing stock and writes an immutable InventoryMovement record.
    * Enforces strict ownership: a seller can only adjust their own listing.
    */
@@ -360,63 +412,279 @@ export class SellerTrustService {
   /**
    * Wanted-Part Requests & Seller Offers
    */
+  /**
+   * Wanted-Part Requests & Seller Offers Engine
+   */
   static async createWantedRequest(params: {
     customerId: string;
-    deviceId: string;
+    category?: string;
+    brand?: string;
+    deviceModel?: string;
+    partNumber?: string;
     componentType: string;
     description: string;
-    maxBudgetPaise: number;
+    quantity?: number;
+    requiredCondition?: 'any' | 'new' | 'refurbished' | 'used';
+    maxBudgetPaise?: number;
+    deliveryCity?: string;
+    deliveryPostalCode?: string;
+    preferredDeliveryDate?: string | Date;
+    expiresAt?: string | Date;
+    photoAssetIds?: string[];
+    deviceId?: string;
   }): Promise<IWantedRequestDocument> {
-    if (!Number.isInteger(params.maxBudgetPaise) || params.maxBudgetPaise <= 0) {
+    const maxBudget = params.maxBudgetPaise ?? 0;
+    if (!Number.isInteger(maxBudget) || maxBudget < 0) {
       throw new AppError(
         400,
         'INVALID_BUDGET_PAISE',
-        'maxBudgetPaise must be a positive integer in paise'
+        'maxBudgetPaise must be a non-negative integer in paise'
       );
     }
 
+    const qty = params.quantity ?? 1;
+    if (!Number.isInteger(qty) || qty < 1 || qty > 100) {
+      throw new AppError(400, 'INVALID_QUANTITY', 'Quantity must be between 1 and 100');
+    }
+
+    const expiresAt = params.expiresAt
+      ? new Date(params.expiresAt)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
     return WantedRequestModel.create({
-      ...params,
+      customerId: params.customerId,
+      category: params.category?.trim() || 'Smartphones',
+      brand: params.brand?.trim() || 'Generic',
+      deviceModel: params.deviceModel?.trim() || 'Various',
+      partNumber: params.partNumber?.trim(),
+      componentType: params.componentType.trim(),
+      description: params.description.trim(),
+      quantity: qty,
+      requiredCondition: params.requiredCondition || 'any',
+      maxBudgetPaise: maxBudget,
+      deliveryCity: params.deliveryCity?.trim(),
+      deliveryPostalCode: params.deliveryPostalCode?.trim(),
+      preferredDeliveryDate: params.preferredDeliveryDate
+        ? new Date(params.preferredDeliveryDate)
+        : undefined,
+      expiresAt,
+      photoAssetIds: params.photoAssetIds || [],
+      deviceId: params.deviceId || undefined,
       status: 'open',
       offers: [],
     });
   }
 
-  static async listWantedRequests(): Promise<IWantedRequestDocument[]> {
-    return WantedRequestModel.find({ status: 'open' })
+  static async listWantedRequests(filters?: {
+    customerId?: string;
+    status?: string;
+    brand?: string;
+    category?: string;
+    q?: string;
+  }): Promise<IWantedRequestDocument[]> {
+    const query: any = {};
+
+    if (filters?.customerId) {
+      query.customerId = filters.customerId;
+      if (filters.status) {
+        query.status = filters.status;
+      }
+    } else {
+      query.status = filters?.status || 'open';
+    }
+
+    if (filters?.brand) {
+      query.brand = new RegExp(filters.brand.trim(), 'i');
+    }
+    if (filters?.category) {
+      query.category = new RegExp(filters.category.trim(), 'i');
+    }
+    if (filters?.q) {
+      const regex = new RegExp(filters.q.trim(), 'i');
+      query.$or = [
+        { componentType: regex },
+        { deviceModel: regex },
+        { brand: regex },
+        { partNumber: regex },
+        { description: regex },
+      ];
+    }
+
+    return WantedRequestModel.find(query)
+      .populate('customerId', 'fullName email phone')
       .populate('deviceId', 'modelName modelNumber')
-      .populate('customerId', 'fullName')
+      .populate('offers.sellerId', 'fullName email')
       .sort({ createdAt: -1 });
+  }
+
+  static async getWantedRequestById(id: string): Promise<IWantedRequestDocument> {
+    const wanted = await WantedRequestModel.findById(id)
+      .populate('customerId', 'fullName email phone')
+      .populate('deviceId', 'modelName modelNumber')
+      .populate('offers.sellerId', 'fullName email');
+
+    if (!wanted) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+
+    // Auto-expire check
+    if (wanted.status === 'open' && wanted.expiresAt && wanted.expiresAt < new Date()) {
+      wanted.status = 'expired';
+      await wanted.save();
+    }
+
+    return wanted;
+  }
+
+  static async updateWantedRequest(params: {
+    customerId: string;
+    requestId: string;
+    update: {
+      description?: string;
+      maxBudgetPaise?: number;
+      quantity?: number;
+      requiredCondition?: 'any' | 'new' | 'refurbished' | 'used';
+      deliveryCity?: string;
+      deliveryPostalCode?: string;
+      preferredDeliveryDate?: string | Date;
+      expiresAt?: string | Date;
+    };
+  }): Promise<IWantedRequestDocument> {
+    const wanted = await WantedRequestModel.findById(params.requestId);
+    if (!wanted) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+    if (wanted.customerId.toString() !== params.customerId) {
+      throw new AppError(403, 'OWNERSHIP_VIOLATION', 'Cannot edit another customer’s request');
+    }
+    if (wanted.status !== 'open') {
+      throw new AppError(400, 'REQUEST_NOT_OPEN', 'Only open requests can be modified');
+    }
+
+    if (params.update.description !== undefined) {
+      wanted.description = params.update.description.trim();
+    }
+    if (params.update.maxBudgetPaise !== undefined) {
+      wanted.maxBudgetPaise = params.update.maxBudgetPaise;
+    }
+    if (params.update.quantity !== undefined) {
+      wanted.quantity = params.update.quantity;
+    }
+    if (params.update.requiredCondition !== undefined) {
+      wanted.requiredCondition = params.update.requiredCondition;
+    }
+    if (params.update.deliveryCity !== undefined) {
+      wanted.deliveryCity = params.update.deliveryCity.trim();
+    }
+    if (params.update.deliveryPostalCode !== undefined) {
+      wanted.deliveryPostalCode = params.update.deliveryPostalCode.trim();
+    }
+    if (params.update.preferredDeliveryDate !== undefined) {
+      wanted.preferredDeliveryDate = params.update.preferredDeliveryDate
+        ? new Date(params.update.preferredDeliveryDate)
+        : undefined;
+    }
+    if (params.update.expiresAt !== undefined) {
+      wanted.expiresAt = new Date(params.update.expiresAt);
+    }
+
+    await wanted.save();
+    return wanted;
+  }
+
+  static async cancelWantedRequest(params: {
+    customerId: string;
+    requestId: string;
+    userRole?: string;
+  }): Promise<IWantedRequestDocument> {
+    const wanted = await WantedRequestModel.findById(params.requestId);
+    if (!wanted) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+    const isOwner = wanted.customerId.toString() === params.customerId;
+    const isAdmin = ['administrator', 'super_administrator'].includes(params.userRole || '');
+    if (!isOwner && !isAdmin) {
+      throw new AppError(403, 'OWNERSHIP_VIOLATION', 'Cannot cancel another customer’s request');
+    }
+    if (wanted.status !== 'open') {
+      throw new AppError(400, 'REQUEST_NOT_OPEN', `Cannot cancel a request that is already ${wanted.status}`);
+    }
+
+    wanted.status = 'cancelled';
+    for (const offer of wanted.offers) {
+      if (offer.status === 'pending') {
+        offer.status = 'rejected';
+      }
+    }
+
+    await wanted.save();
+    return wanted;
   }
 
   static async createWantedOffer(params: {
     sellerId: string;
     wantedRequestId: string;
-    listingId: string;
     offeredPricePaise: number;
+    availableQuantity?: number;
+    condition?: 'new' | 'refurbished' | 'used';
+    compatibilityEvidence?: string;
+    warrantyDays?: number;
+    shippingCostPaise?: number;
+    estimatedDeliveryDays?: number;
     notes?: string;
+    listingId?: string;
   }): Promise<IWantedRequestDocument> {
     const wanted = await WantedRequestModel.findById(params.wantedRequestId);
     if (!wanted || wanted.status !== 'open') {
-      throw new AppError(404, 'WANTED_REQUEST_NOT_OPEN', 'Wanted request not found or closed');
+      throw new AppError(404, 'WANTED_REQUEST_NOT_OPEN', 'Wanted request not found or is closed');
     }
 
-    const listing = await ListingModel.findById(params.listingId);
-    if (!listing || listing.sellerId.toString() !== params.sellerId) {
+    if (wanted.expiresAt && wanted.expiresAt < new Date()) {
+      wanted.status = 'expired';
+      await wanted.save();
+      throw new AppError(400, 'REQUEST_EXPIRED', 'This wanted-part request has expired and cannot accept offers');
+    }
+
+    // Check for duplicate pending offer from the same seller
+    const existingOffer = wanted.offers.find(
+      (o) => o.sellerId.toString() === params.sellerId && o.status === 'pending'
+    );
+    if (existingOffer) {
       throw new AppError(
-        403,
-        'OWNERSHIP_VIOLATION',
-        'Offer must reference an active listing owned by the seller'
+        409,
+        'DUPLICATE_OFFER',
+        'You already have an active offer on this request. Please edit or withdraw your existing offer.'
       );
+    }
+
+    // Lookup seller profile to record storeName
+    const sellerProfile = await SellerProfileModel.findOne({ userId: params.sellerId });
+    const storeName = sellerProfile?.storeName || 'Verified Spares Seller';
+
+    // Optional listing validation
+    let listingObjId = undefined;
+    if (params.listingId) {
+      const listing = await ListingModel.findById(params.listingId);
+      if (listing && listing.sellerId.toString() === params.sellerId) {
+        listingObjId = listing._id;
+      }
     }
 
     wanted.offers.push({
       sellerId: params.sellerId as any,
-      listingId: listing._id,
+      storeName,
+      listingId: listingObjId,
       offeredPricePaise: params.offeredPricePaise,
-      notes: params.notes,
+      availableQuantity: params.availableQuantity ?? 1,
+      condition: params.condition || 'new',
+      compatibilityEvidence: params.compatibilityEvidence?.trim(),
+      warrantyDays: params.warrantyDays ?? 30,
+      shippingCostPaise: params.shippingCostPaise ?? 0,
+      estimatedDeliveryDays: params.estimatedDeliveryDays ?? 3,
+      notes: params.notes?.trim(),
       status: 'pending',
       createdAt: new Date(),
+      updatedAt: new Date(),
     } as any);
 
     await wanted.save();
@@ -424,7 +692,7 @@ export class SellerTrustService {
     await NotificationModel.create({
       userId: wanted.customerId,
       title: 'New Seller Offer on Wanted Part Request',
-      message: `A verified seller submitted an offer of ₹${(
+      message: `${storeName} submitted an offer of ₹${(
         params.offeredPricePaise / 100
       ).toFixed(2)} for your requested ${wanted.componentType}.`,
       type: 'wanted_offer',
@@ -437,9 +705,230 @@ export class SellerTrustService {
     return wanted;
   }
 
+  static async updateWantedOffer(params: {
+    sellerId: string;
+    wantedRequestId: string;
+    offerId: string;
+    update: {
+      offeredPricePaise?: number;
+      availableQuantity?: number;
+      condition?: 'new' | 'refurbished' | 'used';
+      compatibilityEvidence?: string;
+      warrantyDays?: number;
+      shippingCostPaise?: number;
+      estimatedDeliveryDays?: number;
+      notes?: string;
+    };
+  }): Promise<IWantedRequestDocument> {
+    const wanted = await WantedRequestModel.findById(params.wantedRequestId);
+    if (!wanted) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+    if (wanted.status !== 'open') {
+      throw new AppError(400, 'REQUEST_NOT_OPEN', 'Cannot edit offer on a closed or fulfilled request');
+    }
+
+    const offer = wanted.offers.id(params.offerId);
+    if (!offer) {
+      throw new AppError(404, 'OFFER_NOT_FOUND', 'Offer not found');
+    }
+    if (offer.sellerId.toString() !== params.sellerId) {
+      throw new AppError(403, 'OWNERSHIP_VIOLATION', 'Cannot edit another seller’s offer');
+    }
+    if (offer.status !== 'pending') {
+      throw new AppError(400, 'OFFER_NOT_PENDING', `Offer cannot be edited because it is ${offer.status}`);
+    }
+
+    if (params.update.offeredPricePaise !== undefined) {
+      offer.offeredPricePaise = params.update.offeredPricePaise;
+    }
+    if (params.update.availableQuantity !== undefined) {
+      offer.availableQuantity = params.update.availableQuantity;
+    }
+    if (params.update.condition !== undefined) {
+      offer.condition = params.update.condition;
+    }
+    if (params.update.compatibilityEvidence !== undefined) {
+      offer.compatibilityEvidence = params.update.compatibilityEvidence.trim();
+    }
+    if (params.update.warrantyDays !== undefined) {
+      offer.warrantyDays = params.update.warrantyDays;
+    }
+    if (params.update.shippingCostPaise !== undefined) {
+      offer.shippingCostPaise = params.update.shippingCostPaise;
+    }
+    if (params.update.estimatedDeliveryDays !== undefined) {
+      offer.estimatedDeliveryDays = params.update.estimatedDeliveryDays;
+    }
+    if (params.update.notes !== undefined) {
+      offer.notes = params.update.notes.trim();
+    }
+    offer.updatedAt = new Date();
+
+    await wanted.save();
+    return wanted;
+  }
+
+  static async withdrawWantedOffer(params: {
+    sellerId: string;
+    wantedRequestId: string;
+    offerId: string;
+  }): Promise<IWantedRequestDocument> {
+    const wanted = await WantedRequestModel.findById(params.wantedRequestId);
+    if (!wanted) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+
+    const offer = wanted.offers.id(params.offerId);
+    if (!offer) {
+      throw new AppError(404, 'OFFER_NOT_FOUND', 'Offer not found');
+    }
+    if (offer.sellerId.toString() !== params.sellerId) {
+      throw new AppError(403, 'OWNERSHIP_VIOLATION', 'Cannot withdraw another seller’s offer');
+    }
+    if (offer.status !== 'pending') {
+      throw new AppError(400, 'OFFER_NOT_PENDING', `Cannot withdraw an offer with status ${offer.status}`);
+    }
+
+    offer.status = 'withdrawn';
+    offer.updatedAt = new Date();
+    await wanted.save();
+    return wanted;
+  }
+
+  /**
+   * Concurrency-safe atomic offer acceptance by customer
+   */
+  static async acceptWantedOffer(params: {
+    customerId: string;
+    wantedRequestId: string;
+    offerId: string;
+  }): Promise<IWantedRequestDocument> {
+    // 1. Verify existence and ownership first
+    const wantedCheck = await WantedRequestModel.findById(params.wantedRequestId);
+    if (!wantedCheck) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+    if (wantedCheck.customerId.toString() !== params.customerId) {
+      throw new AppError(403, 'OWNERSHIP_VIOLATION', 'Cannot accept an offer on another customer’s request');
+    }
+    if (wantedCheck.status !== 'open') {
+      throw new AppError(
+        400,
+        'REQUEST_ALREADY_CLOSED',
+        `This request is already ${wantedCheck.status} and cannot accept further offers`
+      );
+    }
+
+    const targetOffer = wantedCheck.offers.id(params.offerId);
+    if (!targetOffer) {
+      throw new AppError(404, 'OFFER_NOT_FOUND', 'Offer not found');
+    }
+    if (targetOffer.status !== 'pending') {
+      throw new AppError(
+        400,
+        'OFFER_NOT_PENDING',
+        `Offer cannot be accepted because its status is '${targetOffer.status}'`
+      );
+    }
+
+    // 2. Concurrency-safe atomic update
+    const updated = await WantedRequestModel.findOneAndUpdate(
+      {
+        _id: params.wantedRequestId,
+        customerId: params.customerId,
+        status: 'open',
+        'offers._id': params.offerId,
+        'offers.status': 'pending',
+      },
+      {
+        $set: {
+          status: 'fulfilled',
+          acceptedOfferId: targetOffer._id,
+          'offers.$[accepted].status': 'accepted',
+          'offers.$[accepted].updatedAt': new Date(),
+          'offers.$[others].status': 'rejected',
+          'offers.$[others].updatedAt': new Date(),
+        },
+      },
+      {
+        arrayFilters: [
+          { 'accepted._id': targetOffer._id },
+          { 'others._id': { $ne: targetOffer._id }, 'others.status': 'pending' },
+        ],
+        new: true,
+      }
+    ).populate('customerId', 'fullName email')
+     .populate('offers.sellerId', 'fullName email');
+
+    if (!updated) {
+      throw new AppError(
+        409,
+        'CONCURRENT_ACCEPTANCE_CONFLICT',
+        'This offer or request has already been modified or accepted by a concurrent action'
+      );
+    }
+
+    // Notify the accepted seller
+    await NotificationModel.create({
+      userId: targetOffer.sellerId,
+      title: 'Your Wanted-Part Offer was Accepted!',
+      message: `The buyer accepted your offer of ₹${(
+        targetOffer.offeredPricePaise / 100
+      ).toFixed(2)} for ${updated.componentType}.`,
+      type: 'wanted_offer',
+      metadata: {
+        wantedRequestId: updated._id.toString(),
+        offerId: targetOffer._id.toString(),
+      },
+    });
+
+    return updated;
+  }
+
+  static async rejectWantedOffer(params: {
+    customerId: string;
+    wantedRequestId: string;
+    offerId: string;
+  }): Promise<IWantedRequestDocument> {
+    const wanted = await WantedRequestModel.findById(params.wantedRequestId);
+    if (!wanted) {
+      throw new AppError(404, 'WANTED_REQUEST_NOT_FOUND', 'Wanted request not found');
+    }
+    if (wanted.customerId.toString() !== params.customerId) {
+      throw new AppError(403, 'OWNERSHIP_VIOLATION', 'Cannot reject an offer on another customer’s request');
+    }
+
+    const offer = wanted.offers.id(params.offerId);
+    if (!offer) {
+      throw new AppError(404, 'OFFER_NOT_FOUND', 'Offer not found');
+    }
+    if (offer.status !== 'pending') {
+      throw new AppError(400, 'OFFER_NOT_PENDING', `Offer is already ${offer.status}`);
+    }
+
+    offer.status = 'rejected';
+    offer.updatedAt = new Date();
+    await wanted.save();
+
+    await NotificationModel.create({
+      userId: offer.sellerId,
+      title: 'Offer Declined on Wanted Part Request',
+      message: `The buyer did not accept your offer on ${wanted.componentType}.`,
+      type: 'wanted_offer',
+      metadata: {
+        wantedRequestId: wanted._id.toString(),
+        offerId: offer._id.toString(),
+      },
+    });
+
+    return wanted;
+  }
+
   static async getWantedOffers(wantedRequestId: string): Promise<IWantedRequestDocument> {
     const wanted = await WantedRequestModel.findById(wantedRequestId)
       .populate('deviceId', 'modelName modelNumber')
+      .populate('customerId', 'fullName email')
       .populate('offers.sellerId', 'fullName email')
       .populate('offers.listingId', 'title condition pricePaise warrantyDays');
 

@@ -2,6 +2,7 @@ import { getEnv } from './config/env';
 import { connectDatabase } from './config/db';
 import { createApp } from './app';
 import { logger } from './middleware/logger';
+import { bootstrapAdminUser } from './seed/seedData';
 
 async function bootstrap(): Promise<void> {
   // Validate environment variables at startup (throws clearly if invalid)
@@ -9,6 +10,9 @@ async function bootstrap(): Promise<void> {
 
   // Connect to MongoDB (exits if connection fails)
   await connectDatabase();
+
+  // Ensure predefined administrator is configured
+  await bootstrapAdminUser();
 
   const app = createApp();
 

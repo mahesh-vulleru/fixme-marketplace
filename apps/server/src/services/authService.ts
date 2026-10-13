@@ -19,10 +19,14 @@ export class AuthService {
     phone?: string;
     fullName: string;
     password: string;
+    role?: 'customer' | 'seller';
+    storeName?: string;
+    businessAddress?: string;
   }): Promise<{
     user: IUserDocument;
     token: string;
     csrfToken: string;
+    sellerProfile?: ISellerProfileDocument | null;
   }> {
     const normalizedEmail = input.email.trim().toLowerCase();
     const existing = await UserModel.findOne({ email: normalizedEmail });
@@ -31,8 +35,8 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
-    // Public registration ALWAYS creates least-privileged 'customer' role
-    const role: UserRole = 'customer';
+    // Support customer (client) or seller registration
+    const role: UserRole = input.role === 'seller' ? 'seller' : 'customer';
 
     let user: IUserDocument;
     try {
@@ -57,6 +61,25 @@ export class AuthService {
       throw err;
     }
 
+    let sellerProfile: ISellerProfileDocument | null = null;
+    if (role === 'seller') {
+      const storeName = input.storeName?.trim() || `${input.fullName.trim()}'s Spares`;
+      const baseSlug = storeName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const storeSlug = `${baseSlug || 'store'}-${user._id.toString().slice(-6)}`;
+
+      sellerProfile = await SellerProfileModel.create({
+        userId: user._id,
+        storeName,
+        storeSlug,
+        businessAddress: input.businessAddress?.trim() || 'Pending verification details',
+        verificationDocumentAssetIds: [],
+        status: 'pending',
+      });
+    }
+
     const token = signSessionToken({
       id: user._id.toString(),
       email: user.email,
@@ -66,7 +89,7 @@ export class AuthService {
     });
     const csrfToken = generateCsrfToken(user._id.toString());
 
-    return { user, token, csrfToken };
+    return { user, token, csrfToken, sellerProfile };
   }
 
   static async login(input: {
@@ -136,6 +159,7 @@ export class AuthService {
     message: string;
     emailDeliveryConfigured: boolean;
     sandboxResetToken?: string;
+    devResetToken?: string;
   }> {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await UserModel.findOne({ email: normalizedEmail });
@@ -171,9 +195,11 @@ export class AuthService {
       message:
         'If an active account matches that email address, password recovery instructions have been recorded.',
       emailDeliveryConfigured: isEmailConfigured,
-      // Only returned in test/development sandbox mode when external email provider is not configured
+      // Only returned in test/development mode; never exposed in production
       sandboxResetToken:
-        env.NODE_ENV !== 'production' && !isEmailConfigured ? rawToken : undefined,
+        env.NODE_ENV !== 'production' ? rawToken : undefined,
+      devResetToken:
+        env.NODE_ENV !== 'production' ? rawToken : undefined,
     };
   }
 

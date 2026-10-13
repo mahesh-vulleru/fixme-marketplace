@@ -9,12 +9,13 @@
   ],
   "scripts": {
     "build:packages": "npm run build --workspace=@fixme/shared-types && npm run build --workspace=@fixme/validation && npm run build --workspace=@fixme/api-contracts",
-    "build": "npm run build:packages && npm run build --workspace=@fixme/server && npm run build --workspace=@fixme/client && npm run build --workspace=@fixme/admin",
+    "build": "npm run build:packages && npm run build --workspace=@fixme/server && npm run build --workspace=@fixme/client && npm run build --workspace=@fixme/admin && npm run build --workspace=@fixme/seller",
     "dev:server": "npm run dev --workspace=@fixme/server",
     "dev:client": "npm run dev --workspace=@fixme/client",
     "dev:admin": "npm run dev --workspace=@fixme/admin",
+    "dev:seller": "npm run dev --workspace=@fixme/seller",
     "test": "npm run test --workspace=@fixme/server",
-    "typecheck": "npm run build:packages && npm run typecheck --workspace=@fixme/server && npm run typecheck --workspace=@fixme/client && npm run typecheck --workspace=@fixme/admin",
+    "typecheck": "npm run build:packages && npm run typecheck --workspace=@fixme/server && npm run typecheck --workspace=@fixme/client && npm run typecheck --workspace=@fixme/admin && npm run typecheck --workspace=@fixme/seller",
     "seed": "npm run seed --workspace=@fixme/server"
   },
   "devDependencies": {

@@ -14,6 +14,9 @@ interface AuthContextValue {
     password: string;
     confirmPassword: string;
     acceptTerms: boolean;
+    role?: 'customer' | 'seller';
+    storeName?: string;
+    businessAddress?: string;
   }) => Promise<IUser>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -63,13 +66,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string;
     confirmPassword: string;
     acceptTerms: boolean;
+    role?: 'customer' | 'seller';
+    storeName?: string;
+    businessAddress?: string;
   }): Promise<IUser> => {
     const data = await apiRequest<AuthSessionData>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(input),
     });
     setUser(data.user);
-    setSellerProfile(null);
+    setSellerProfile(data.sellerProfile || null);
     setCsrfToken(data.csrfToken);
     return data.user;
   };
@@ -108,3 +114,4 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+

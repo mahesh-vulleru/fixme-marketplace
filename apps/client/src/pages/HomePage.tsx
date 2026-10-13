@@ -1,37 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { HealthCheckData } from '@fixme/api-contracts';
-import { healthService } from '../services/apiClient';
-import { Activity, CheckCircle2, AlertTriangle, ShieldCheck, Cpu, Layers } from 'lucide-react';
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { ShieldCheck, Cpu, Layers, Search, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export const HomePage: React.FC = () => {
-  const [health, setHealth] = useState<HealthCheckData | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    healthService
-      .checkHealth()
-      .then((res) => {
-        if (mounted) {
-          setHealth(res);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : 'Unable to reach FixMe API');
-          setLoading(false);
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
   return (
     <div className="space-y-8">
-      <section className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white p-8 shadow-lg border border-slate-800">
+      <section className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white p-8 sm:p-10 shadow-lg border border-slate-800">
         <div className="max-w-3xl space-y-4">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-semibold">
             <ShieldCheck className="w-4 h-4" />
@@ -44,6 +18,23 @@ export const HomePage: React.FC = () => {
             Every spare part on FixMe.com is matched against canonical device model numbers, OEM part numbers,
             and structured compatibility records—eliminating wrong-part returns for repair shops and DIY technicians.
           </p>
+          <div className="pt-2 flex flex-wrap gap-3">
+            <Link
+              to="/compatibility"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-sm transition-colors"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Check Compatibility
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </Link>
+            <Link
+              to="/wanted"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-sm transition-colors"
+            >
+              <Search className="w-4 h-4 text-amber-400" />
+              Request Hard-to-Find Part
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -60,7 +51,7 @@ export const HomePage: React.FC = () => {
 
         <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
           <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4">
-            <ShieldCheck className="w-5 h-5" />
+            <CheckCircle2 className="w-5 h-5" />
           </div>
           <h2 className="font-bold text-slate-900">Exact Compatibility Records</h2>
           <p className="text-sm text-slate-600 mt-1">
@@ -77,57 +68,6 @@ export const HomePage: React.FC = () => {
             All prices stored and calculated in integer paise with atomic stock reservations during checkout.
           </p>
         </div>
-      </section>
-
-      <section className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-600" />
-            <h2 className="text-base font-bold text-slate-900">Live Backend API Health Status</h2>
-          </div>
-          <span className="text-xs font-mono text-slate-500">GET /api/v1/health</span>
-        </div>
-
-        {loading && (
-          <div className="text-sm text-slate-500 animate-pulse">Checking API connectivity...</div>
-        )}
-
-        {error && (
-          <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>API Connection Error: {error}</span>
-          </div>
-        )}
-
-        {health && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 block">Status</span>
-              <span className="font-semibold text-emerald-700 inline-flex items-center gap-1 mt-0.5">
-                <CheckCircle2 className="w-4 h-4" />
-                {health.status.toUpperCase()}
-              </span>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 block">Database</span>
-              <span className="font-semibold text-slate-900 mt-0.5 block">
-                {health.database.toUpperCase()}
-              </span>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 block">Service Version</span>
-              <span className="font-mono font-semibold text-slate-900 mt-0.5 block">
-                {health.service} v{health.version}
-              </span>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 block">Timestamp</span>
-              <span className="font-mono font-semibold text-slate-900 mt-0.5 block truncate">
-                {health.timestamp}
-              </span>
-            </div>
-          </div>
-        )}
       </section>
     </div>
   );

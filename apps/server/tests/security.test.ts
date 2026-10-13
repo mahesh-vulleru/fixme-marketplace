@@ -136,5 +136,79 @@ describe('Phase 6 — Production Security Suite: IDOR, Privilege Escalation, COR
 
     expect(corsRes.status).toBe(500);
   });
+
+  it('enforces private access control on KYC and dispute evidence assets while keeping product photos public', async () => {
+    const [owner, stranger, admin] = await Promise.all([
+      UserModel.create({ email: 'owner@fixme.com', fullName: 'Doc Owner', passwordHash: 'hash', role: 'seller' }),
+      UserModel.create({ email: 'stranger@fixme.com', fullName: 'Stranger', passwordHash: 'hash', role: 'customer' }),
+      UserModel.create({ email: 'secadmin@fixme.com', fullName: 'Sec Admin', passwordHash: 'hash', role: 'administrator' }),
+    ]);
+
+    const ownerToken = signSessionToken({ id: owner._id.toString(), email: owner.email, role: owner.role, fullName: owner.fullName });
+    const strangerToken = signSessionToken({ id: stranger._id.toString(), email: stranger.email, role: stranger.role, fullName: stranger.fullName });
+    const adminToken = signSessionToken({ id: admin._id.toString(), email: admin.email, role: admin.role, fullName: admin.fullName });
+
+    // Owner creates a private seller_document upload intent
+    const intentRes = await request(app)
+      .post('/api/v1/assets/upload-intent')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        assetType: 'seller_document',
+        mimeType: 'image/png',
+        sizeBytes: 40960,
+      });
+
+    expect(intentRes.status).toBe(201);
+    expect(intentRes.body.data.asset.isPublic).toBe(false);
+    expect(intentRes.body.data.asset.deliveryUrl).toBeUndefined();
+
+    const assetId = intentRes.body.data.asset._id;
+
+    // Complete the asset upload
+    await request(app)
+      .post(`/api/v1/assets/${assetId}/complete`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    // Stranger cannot access private KYC document (403 PRIVATE_ASSET_FORBIDDEN)
+    const strangerAccessRes = await request(app)
+      .get(`/api/v1/assets/${assetId}/access`)
+      .set('Authorization', `Bearer ${strangerToken}`);
+
+    expect(strangerAccessRes.status).toBe(403);
+    expect(strangerAccessRes.body.error.code).toBe('PRIVATE_ASSET_FORBIDDEN');
+
+    // Owner and Admin CAN obtain signed access URL
+    const ownerAccessRes = await request(app)
+      .get(`/api/v1/assets/${assetId}/access`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(ownerAccessRes.status).toBe(200);
+    expect(ownerAccessRes.body.data.signedAccessUrl).toContain('sig=');
+
+    const adminAccessRes = await request(app)
+      .get(`/api/v1/assets/${assetId}/access`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminAccessRes.status).toBe(200);
+
+    // Verify Seller Dashboard origin (http://localhost:5175) is allowed by CORS
+    const sellerCorsRes = await request(app)
+      .get('/api/v1/health')
+      .set('Origin', 'http://localhost:5175');
+    expect(sellerCorsRes.status).toBe(200);
+    expect(sellerCorsRes.headers['access-control-allow-origin']).toBe('http://localhost:5175');
+
+    // Verify unapproved seller cannot create a listing via /api/v1/seller/listings
+    const unapprovedCreateRes = await request(app)
+      .post('/api/v1/seller/listings')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        partId: new mongoose.Types.ObjectId().toString(),
+        title: 'Unapproved Seller Listing Attempt',
+        condition: 'new',
+        pricePaise: 150000,
+        stockAvailable: 5,
+      });
+    expect(unapprovedCreateRes.status).toBe(403);
+    expect(unapprovedCreateRes.body.error.code).toBe('SELLER_NOT_APPROVED');
+  });
 });
 

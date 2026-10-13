@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import { AssetService } from '../services/assetService';
+import { env } from '../config/env';
 
 export class AssetController {
   static async createUploadIntent(
@@ -8,7 +10,17 @@ export class AssetController {
     next: NextFunction
   ): Promise<void> {
     try {
-      const ownerUserId = req.user?.id || req.body.ownerUserId || 'system';
+      let tokenUserId: string | undefined;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const decoded = jwt.verify(authHeader.slice(7), env.SESSION_SECRET) as { id?: string };
+          tokenUserId = decoded.id;
+        } catch {
+          // Ignore invalid optional token on public upload-intent
+        }
+      }
+      const ownerUserId = req.user?.id || tokenUserId || req.body.ownerUserId || 'system';
       const result = await AssetService.createUploadIntent({
         ...req.body,
         ownerUserId,

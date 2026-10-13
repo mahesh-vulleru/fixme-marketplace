@@ -75,3 +75,4 @@ export const PoliciesPage: React.FC = () => {
     </div>
   );
 };
+

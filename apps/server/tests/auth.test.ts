@@ -200,6 +200,243 @@ describe('Phase 3 — Accounts, RBAC, CSRF Defense & Moderation', () => {
 
     expect(auditRes.status).toBe(200);
     expect(auditRes.body.data.length).toBeGreaterThanOrEqual(3);
+
+    // Verify Admin Dashboard live metrics
+    const dashRes = await request(app)
+      .get('/api/v1/admin/dashboard')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(dashRes.status).toBe(200);
+    expect(dashRes.body.data.totalUsers).toBeGreaterThanOrEqual(2);
+    expect(dashRes.body.data.activeListings).toBe(1);
+  });
+
+  it('handles password recovery with single-use hashed token, invalidates old sessions, and blocks concurrent duplicate registrations', async () => {
+    // 1. Concurrent registration with the same normalized email
+    const [reg1, reg2] = await Promise.all([
+      request(app).post('/api/v1/auth/register').send({
+        email: 'ConcurrentUser@FixMe.com',
+        fullName: 'Concurrent User',
+        password: 'StrongPassword123!',
+        confirmPassword: 'StrongPassword123!',
+        acceptTerms: true,
+      }),
+      request(app).post('/api/v1/auth/register').send({
+        email: 'concurrentuser@fixme.com',
+        fullName: 'Concurrent User Duplicate',
+        password: 'StrongPassword123!',
+        confirmPassword: 'StrongPassword123!',
+        acceptTerms: true,
+      }),
+    ]);
+
+    const regStatuses = [reg1.status, reg2.status].sort();
+    expect(regStatuses).toEqual([201, 409]);
+
+    const successReg = reg1.status === 201 ? reg1 : reg2;
+    const oldSessionToken = successReg.body.data.token;
+
+    // 2. Request password reset token
+    const forgotRes = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: 'concurrentuser@fixme.com' });
+
+    expect(forgotRes.status).toBe(200);
+    const resetToken = forgotRes.body.data.devResetToken;
+    expect(resetToken).toBeDefined();
+
+    // 3. Reset password using the single-use token
+    const resetRes = await request(app)
+      .post('/api/v1/auth/reset-password')
+      .send({
+        token: resetToken,
+        password: 'NewStrongPassword456!',
+        confirmPassword: 'NewStrongPassword456!',
+      });
+
+    expect(resetRes.status).toBe(200);
+
+    // 4. Re-using the same reset token must fail with 400 INVALID_OR_EXPIRED_RESET_TOKEN
+    const reuseRes = await request(app)
+      .post('/api/v1/auth/reset-password')
+      .send({
+        token: resetToken,
+        password: 'AnotherPassword789!',
+        confirmPassword: 'AnotherPassword789!',
+      });
+
+    expect(reuseRes.status).toBe(400);
+    expect(reuseRes.body.error.code).toBe('INVALID_OR_EXPIRED_RESET_TOKEN');
+
+    // 5. Old session token issued before password reset must be rejected (401 SESSION_INVALIDATED)
+    const oldMeRes = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${oldSessionToken}`);
+
+    expect(oldMeRes.status).toBe(401);
+    expect(oldMeRes.body.error.code).toBe('SESSION_INVALIDATED');
+
+    // 6. Login with new password succeeds and public policies endpoint works
+    const newLoginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'concurrentuser@fixme.com',
+        password: 'NewStrongPassword456!',
+      });
+
+    expect(newLoginRes.status).toBe(200);
+
+    const policiesRes = await request(app).get('/api/v1/policies');
+    expect(policiesRes.status).toBe(200);
+    expect(policiesRes.body.data.pricingPolicy.currency).toBe('INR');
+  });
+
+  it('prohibits public registration with administrative or elevated roles', async () => {
+    const adminAttemptRes = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: 'hacker_admin@fixme.com',
+        fullName: 'Fake Admin Attempt',
+        password: 'StrongPassword123!',
+        role: 'administrator',
+      });
+
+    expect(adminAttemptRes.status).toBe(400);
+
+    const checkUser = await UserModel.findOne({ email: 'hacker_admin@fixme.com' });
+    expect(checkUser).toBeNull();
+  });
+
+  it('prevents self-escalation via profile updates and denies non-admins access to admin routes', async () => {
+    const regRes = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: 'regular_buyer@fixme.com',
+        fullName: 'Regular Customer',
+        password: 'StrongPassword123!',
+      });
+
+    expect(regRes.status).toBe(201);
+    const token = regRes.body.data.token;
+    const csrfToken = regRes.body.data.csrfToken;
+
+    // Customer attempts to self-escalate role via PATCH /auth/profile
+    const patchRes = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        role: 'administrator',
+        fullName: 'Updated Name',
+      });
+
+    expect(patchRes.status).toBe(200);
+    const refreshedUser = await UserModel.findOne({ email: 'regular_buyer@fixme.com' });
+    expect(refreshedUser?.role).toBe('customer'); // Role remains strictly customer!
+    expect(refreshedUser?.fullName).toBe('Updated Name');
+
+    // Customer attempts to access administrative endpoint
+    const adminAccess = await request(app)
+      .get('/api/v1/admin/dashboard')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(adminAccess.status).toBe(403);
+  });
+
+  it('executes idempotent admin bootstrap from environment and handles non-admin email conflict', async () => {
+    const { bootstrapAdminUser } = await import('../src/seed/seedData');
+
+    process.env.ADMIN_BOOTSTRAP_EMAIL = 'vullerumahesh14@gmail.com';
+    process.env.ADMIN_BOOTSTRAP_PASSWORD = 'Mahesh@238';
+
+    // 1. Initial bootstrap creation
+    const createResult = await bootstrapAdminUser();
+    expect(createResult.status).toBe('created');
+    expect(createResult.email).toBe('vullerumahesh14@gmail.com');
+
+    // Verify admin can authenticate with bootstrapped credentials
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'vullerumahesh14@gmail.com',
+        password: 'Mahesh@238',
+      });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.data.user.role).toBe('administrator');
+
+    // 2. Idempotent re-run
+    const syncResult = await bootstrapAdminUser();
+    expect(syncResult.status).toBe('updated');
+
+    // 3. Conflict handling: existing non-admin user cannot be silently overwritten
+    const customerUser = await UserModel.create({
+      email: 'customer_conflict@fixme.com',
+      fullName: 'Conflict Customer',
+      passwordHash: 'dummyhash',
+      role: 'customer',
+      isActive: true,
+    });
+
+    process.env.ADMIN_BOOTSTRAP_EMAIL = 'customer_conflict@fixme.com';
+    process.env.ADMIN_BOOTSTRAP_PASSWORD = 'Mahesh@238';
+
+    const conflictResult = await bootstrapAdminUser();
+    expect(conflictResult.status).toBe('conflict');
+
+    const unchangedUser = await UserModel.findById(customerUser._id);
+    expect(unchangedUser?.role).toBe('customer'); // Role NOT overwritten!
+  });
+
+  it('allows public registration with category seller and generates initial pending seller profile', async () => {
+    const sellerRegRes = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: 'newseller@fixme.com',
+        fullName: 'Vikram Patel',
+        storeName: 'Patel Mobile Spares',
+        businessAddress: 'Shop 42, Lamington Road, Mumbai',
+        phone: '9820012345',
+        password: 'StrongPassword123!',
+        role: 'seller',
+      });
+
+    expect(sellerRegRes.status).toBe(201);
+    expect(sellerRegRes.body.data.user.role).toBe('seller');
+    expect(sellerRegRes.body.data.sellerProfile).toBeDefined();
+    expect(sellerRegRes.body.data.sellerProfile.storeName).toBe('Patel Mobile Spares');
+    expect(sellerRegRes.body.data.sellerProfile.status).toBe('pending');
+
+    const sellerInDb = await UserModel.findOne({ email: 'newseller@fixme.com' });
+    expect(sellerInDb?.role).toBe('seller');
+
+    const profileInDb = await SellerProfileModel.findOne({ userId: sellerInDb?._id });
+    expect(profileInDb?.storeName).toBe('Patel Mobile Spares');
+    expect(profileInDb?.status).toBe('pending');
+  });
+
+  it('loads admin disputes list with valid schema populate without strictPopulate initiatorUserId errors', async () => {
+    // 1. Create admin user and token
+    const adminUser = await UserModel.create({
+      email: 'dispute_admin@fixme.com',
+      fullName: 'Dispute Admin',
+      passwordHash: 'dummy',
+      role: 'administrator',
+      isActive: true,
+    });
+    const adminToken = signSessionToken({
+      id: adminUser._id.toString(),
+      email: adminUser.email,
+      role: adminUser.role,
+      fullName: adminUser.fullName,
+    });
+
+    // 2. Query disputes endpoint
+    const disputesRes = await request(app)
+      .get('/api/v1/admin/disputes')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(disputesRes.status).toBe(200);
+    expect(Array.isArray(disputesRes.body.data)).toBe(true);
   });
 });
 

@@ -58,15 +58,20 @@ export class ModerationService {
   }
 
   static getMarketplacePolicies() {
+    const pricingRules = {
+      currency: 'INR',
+      precisionUnit: 'paise',
+      platformCommissionBps: 800,
+      platformCommissionPercent: 8,
+      gstTaxBps: 1800,
+      gstRatePercent: 18,
+      flatShippingPaise: 9900,
+      standardShippingPaise: 9900,
+      freeShippingThresholdPaise: 200000,
+    };
     return {
-      pricingRules: {
-        currency: 'INR',
-        precisionUnit: 'paise',
-        platformCommissionBps: 800,
-        gstTaxBps: 1800,
-        flatShippingPaise: 9900,
-        freeShippingThresholdPaise: 200000,
-      },
+      pricingRules,
+      pricingPolicy: pricingRules,
       returnRefundPolicy: {
         returnWindowDays: 14,
         evidenceRequired: true,
@@ -192,5 +197,93 @@ export class ModerationService {
       .populate('actorId', 'email fullName role')
       .sort({ createdAt: -1 })
       .limit(Math.min(200, limit));
+  }
+
+  static async listUsers(role?: string, q?: string): Promise<IUserDocument[]> {
+    const filter: Record<string, unknown> = {};
+    if (role) filter.role = role;
+    if (q) {
+      filter.$or = [
+        { email: { $regex: q, $options: 'i' } },
+        { fullName: { $regex: q, $options: 'i' } },
+      ];
+    }
+    return UserModel.find(filter).sort({ createdAt: -1 });
+  }
+
+  static async updateUserRole(params: {
+    userId: string;
+    role: UserRole;
+    adminId: string;
+    requestId?: string;
+  }): Promise<IUserDocument> {
+    const user = await UserModel.findById(params.userId);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+    const oldRole = user.role;
+    user.role = params.role;
+    await user.save();
+
+    await AuditLogModel.create({
+      actorId: params.adminId,
+      actorRole: 'administrator',
+      action: 'USER_ROLE_UPDATED',
+      entityType: 'User',
+      entityId: user._id.toString(),
+      metadata: { oldRole, newRole: params.role },
+      requestId: params.requestId,
+    });
+    return user;
+  }
+
+  static async updateUserStatus(params: {
+    userId: string;
+    isActive: boolean;
+    adminId: string;
+    requestId?: string;
+  }): Promise<IUserDocument> {
+    const user = await UserModel.findById(params.userId);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+    user.isActive = params.isActive;
+    await user.save();
+
+    await AuditLogModel.create({
+      actorId: params.adminId,
+      actorRole: 'administrator',
+      action: params.isActive ? 'USER_ACTIVATED' : 'USER_SUSPENDED',
+      entityType: 'User',
+      entityId: user._id.toString(),
+      metadata: { isActive: params.isActive },
+      requestId: params.requestId,
+    });
+    return user;
+  }
+
+  static async listAdminOrders(): Promise<any[]> {
+    return OrderModel.find({})
+      .populate('customerId', 'fullName email')
+      .sort({ createdAt: -1 });
+  }
+
+  static async listAdminDisputes(): Promise<any[]> {
+    return DisputeModel.find({})
+      .populate('orderId', 'orderNumber totalPaise status')
+      .populate('customerId', 'fullName email role')
+      .populate('sellerId', 'fullName email role')
+      .populate('resolvedByUserId', 'fullName email role')
+      .sort({ createdAt: -1 });
+  }
+
+  static async getFinanceReport(): Promise<any> {
+    const metrics = await this.getAdminDashboardMetrics();
+    const orders = await OrderModel.find({ status: { $in: ['paid', 'shipped', 'delivered'] } })
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    return {
+      grossMerchandiseValuePaise: metrics.totalGrossRevenuePaise,
+      platformCommissionPaise: Math.round(metrics.totalGrossRevenuePaise * 0.08),
+      totalOrders: metrics.totalOrders,
+      recentPaidOrders: orders,
+    };
   }
 }

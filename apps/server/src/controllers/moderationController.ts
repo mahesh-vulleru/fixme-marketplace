@@ -113,4 +113,119 @@ export class ModerationController {
       next(err);
     }
   }
+
+  static async listUsers(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const users = await ModerationService.listUsers(
+        req.query.role as string | undefined,
+        (req.query.q || req.query.search) as string | undefined
+      );
+      res.status(200).json({
+        success: true,
+        data: users,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async updateUserRole(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const user = await ModerationService.updateUserRole({
+        userId: req.params.id,
+        role: req.body.role,
+        adminId: req.user!.id,
+        requestId: req.requestId,
+      });
+      res.status(200).json({
+        success: true,
+        data: user,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async updateUserStatus(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const user = await ModerationService.updateUserStatus({
+        userId: req.params.id,
+        isActive: req.body.isActive,
+        adminId: req.user!.id,
+        requestId: req.requestId,
+      });
+      res.status(200).json({
+        success: true,
+        data: user,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async listAdminOrders(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const orders = await ModerationService.listAdminOrders();
+      res.status(200).json({
+        success: true,
+        data: orders,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async listAdminDisputes(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const disputes = await ModerationService.listAdminDisputes();
+      res.status(200).json({
+        success: true,
+        data: disputes,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async getFinanceReport(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const report = await ModerationService.getFinanceReport();
+      res.status(200).json({
+        success: true,
+        data: report,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }

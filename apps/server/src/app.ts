@@ -25,7 +25,7 @@ export function createApp(): Express {
   );
 
   // Strict origin allowlist CORS (never '*')
-  const allowedOrigins = new Set([env.CLIENT_URL, env.ADMIN_URL]);
+  const allowedOrigins = new Set([env.CLIENT_URL, env.ADMIN_URL, env.SELLER_URL]);
   app.use(
     cors({
       origin: (origin, callback) => {

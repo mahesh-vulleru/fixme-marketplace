@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/authService';
 import { SESSION_COOKIE_NAME } from '../permissions/rbac';
 import { env } from '../config/env';
+import { AppError } from '../middleware/errorHandler';
 
 function setSessionCookie(res: Response, token: string): void {
   res.cookie(SESSION_COOKIE_NAME, token, {
@@ -16,6 +17,13 @@ function setSessionCookie(res: Response, token: string): void {
 export class AuthController {
   static async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (req.body && req.body.role && req.body.role !== 'customer' && req.body.role !== 'seller') {
+        throw new AppError(
+          400,
+          'ROLE_ASSIGNMENT_PROHIBITED',
+          'Public registration with administrative roles is prohibited. You may only register as a customer or seller.'
+        );
+      }
       const result = await AuthService.register(req.body);
       setSessionCookie(res, result.token);
       res.status(201).json({
@@ -30,7 +38,7 @@ export class AuthController {
             isEmailVerified: result.user.isEmailVerified,
             isActive: result.user.isActive,
           },
-          sellerProfile: null,
+          sellerProfile: result.sellerProfile || null,
           csrfToken: result.csrfToken,
           token: result.token,
         },

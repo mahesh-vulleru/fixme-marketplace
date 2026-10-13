@@ -1,10 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { HealthCheckData } from '@fixme/api-contracts';
-import { healthService } from '../../services/apiClient';
+import { apiRequest, healthService } from '../../services/apiClient';
 import { Activity, CheckCircle2, AlertTriangle } from 'lucide-react';
+
+interface DashboardMetrics {
+  totalUsers: number;
+  totalSellers: number;
+  pendingSellers: number;
+  totalDevices: number;
+  totalParts: number;
+  activeListings: number;
+  pendingListings: number;
+  totalOrders: number;
+  openDisputes: number;
+  pendingReturns: number;
+  grossMerchandiseValuePaise: number;
+  platformCommissionTotalPaise: number;
+}
 
 export const AdminDashboardPage: React.FC = () => {
   const [health, setHealth] = useState<HealthCheckData | null>(null);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -14,16 +30,59 @@ export const AdminDashboardPage: React.FC = () => {
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : 'API check failed')
       );
+
+    apiRequest<DashboardMetrics>('/admin/dashboard')
+      .then(setMetrics)
+      .catch(() => setMetrics(null));
   }, []);
+
+  const formatINR = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">Marketplace Governance & Catalogue Console</h2>
+        <h2 className="text-lg font-bold text-slate-900">Marketplace Governance & Real-Time Metrics</h2>
         <p className="text-sm text-slate-600 mt-1">
-          Manage canonical categories, brands, devices, parts, structured compatibility records, seller verification, and audit logs.
+          Live operational telemetry queried directly from MongoDB collections — no hardcoded dashboard counters.
         </p>
       </div>
+
+      {metrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 uppercase">Paid GMV</span>
+            <p className="text-xl font-bold text-slate-900 mt-1">{formatINR(metrics.grossMerchandiseValuePaise)}</p>
+            <span className="text-xs text-emerald-600 font-medium">
+              Commission: {formatINR(metrics.platformCommissionTotalPaise)}
+            </span>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 uppercase">Users & Sellers</span>
+            <p className="text-xl font-bold text-slate-900 mt-1">
+              {metrics.totalUsers} Users / {metrics.totalSellers} Sellers
+            </p>
+            <span className="text-xs text-amber-600 font-medium">
+              {metrics.pendingSellers} Pending KYC Approval
+            </span>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 uppercase">Catalogue & Listings</span>
+            <p className="text-xl font-bold text-slate-900 mt-1">
+              {metrics.activeListings} Active Listings
+            </p>
+            <span className="text-xs text-slate-500">
+              {metrics.totalDevices} Devices • {metrics.totalParts} Parts ({metrics.pendingListings} pending)
+            </span>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 uppercase">Orders & Disputes</span>
+            <p className="text-xl font-bold text-slate-900 mt-1">{metrics.totalOrders} Orders</p>
+            <span className="text-xs text-rose-600 font-medium">
+              {metrics.openDisputes} Open Disputes • {metrics.pendingReturns} Pending Returns
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between mb-4">
@@ -74,4 +133,3 @@ export const AdminDashboardPage: React.FC = () => {
     </div>
   );
 };
-

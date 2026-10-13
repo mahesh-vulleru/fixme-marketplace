@@ -1,14 +1,119 @@
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import { UserModel } from '../models/User';
+import { SellerProfileModel } from '../models/SellerProfile';
 import { CategoryModel } from '../models/Category';
 import { BrandModel } from '../models/Brand';
 import { DeviceModel } from '../models/Device';
 import { PartModel } from '../models/Part';
 import { CompatibilityRecordModel } from '../models/CompatibilityRecord';
 import { ListingModel } from '../models/Listing';
+import { logger } from '../middleware/logger';
+
+export async function bootstrapAdminUser(): Promise<{
+  status: 'created' | 'updated' | 'conflict' | 'skipped';
+  email?: string;
+}> {
+  const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL?.trim().toLowerCase();
+  const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+
+  if (!bootstrapEmail || !bootstrapPassword) {
+    return { status: 'skipped' };
+  }
+
+  const existingUser = await UserModel.findOne({ email: bootstrapEmail });
+  if (existingUser) {
+    if (existingUser.role === 'administrator' || existingUser.role === 'super_administrator') {
+      const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
+      existingUser.passwordHash = passwordHash;
+      existingUser.isActive = true;
+      await existingUser.save();
+      logger.info('Bootstrap administrator account verified/synchronized', { email: bootstrapEmail });
+      return { status: 'updated', email: bootstrapEmail };
+    } else {
+      logger.warn(
+        `Admin bootstrap conflict: account with email ${bootstrapEmail} already exists with non-admin role '${existingUser.role}'. Account will not be overwritten or silently promoted.`,
+        { email: bootstrapEmail, existingRole: existingUser.role }
+      );
+      return { status: 'conflict', email: bootstrapEmail };
+    }
+  }
+
+  const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
+  await UserModel.create({
+    email: bootstrapEmail,
+    fullName: 'System Administrator',
+    passwordHash,
+    role: 'administrator',
+    isActive: true,
+    isEmailVerified: true,
+    tokenVersion: 0,
+  });
+
+  logger.info('Bootstrap administrator account created successfully', { email: bootstrapEmail });
+  return { status: 'created', email: bootstrapEmail };
+}
 
 export async function seedCatalogueData(sellerUserId?: mongoose.Types.ObjectId) {
-  const defaultSellerId =
-    sellerUserId || new mongoose.Types.ObjectId('65f000000000000000000001');
+  // Bootstrap administrator from environment variables if configured
+  await bootstrapAdminUser();
+
+  // 0. Seed Default Test Accounts for Immediate Login
+  const defaultPasswordHash = await bcrypt.hash('StrongPassword123!', 10);
+
+  const adminUser = await UserModel.findOneAndUpdate(
+    { email: 'admin@fixme.com' },
+    {
+      email: 'admin@fixme.com',
+      fullName: 'System Administrator',
+      passwordHash: defaultPasswordHash,
+      role: 'administrator',
+      isActive: true,
+      tokenVersion: 0,
+    },
+    { upsert: true, new: true }
+  );
+
+  const sellerUser = await UserModel.findOneAndUpdate(
+    { email: 'vendor@fixme.com' },
+    {
+      email: 'vendor@fixme.com',
+      fullName: 'Apex Spares Vendor',
+      passwordHash: defaultPasswordHash,
+      role: 'seller',
+      isActive: true,
+      tokenVersion: 0,
+    },
+    { upsert: true, new: true }
+  );
+
+  await SellerProfileModel.findOneAndUpdate(
+    { userId: sellerUser._id },
+    {
+      userId: sellerUser._id,
+      storeName: 'Apex Circuit Spares',
+      status: 'approved',
+      gstin: '29ABCDE1234F1Z5',
+      panNumber: 'ABCDE1234F',
+      businessAddress: 'SP Road Electronics Market, Bengaluru 560002',
+    },
+    { upsert: true, new: true }
+  );
+
+  const customerUser = await UserModel.findOneAndUpdate(
+    { email: 'customer@fixme.com' },
+    {
+      email: 'customer@fixme.com',
+      fullName: 'Alex Rivera',
+      passwordHash: defaultPasswordHash,
+      role: 'customer',
+      isActive: true,
+      tokenVersion: 0,
+    },
+    { upsert: true, new: true }
+  );
+
+  const defaultSellerId = sellerUserId || sellerUser._id;
 
   // 1. Categories
   const smartphonesCategory = await CategoryModel.findOneAndUpdate(

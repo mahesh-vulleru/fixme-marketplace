@@ -3,20 +3,40 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IWantedOfferSubdoc {
   _id: mongoose.Types.ObjectId;
   sellerId: mongoose.Types.ObjectId;
-  listingId: mongoose.Types.ObjectId;
+  storeName?: string;
+  listingId?: mongoose.Types.ObjectId;
   offeredPricePaise: number;
+  availableQuantity: number;
+  condition: 'new' | 'refurbished' | 'used';
+  compatibilityEvidence?: string;
+  warrantyDays: number;
+  shippingCostPaise: number;
+  estimatedDeliveryDays: number;
   notes?: string;
-  status: 'pending' | 'accepted' | 'declined';
+  status: 'pending' | 'accepted' | 'rejected' | 'withdrawn';
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface IWantedRequestDocument extends Document {
   customerId: mongoose.Types.ObjectId;
-  deviceId: mongoose.Types.ObjectId;
+  category: string;
+  brand: string;
+  deviceModel: string;
+  partNumber?: string;
   componentType: string;
   description: string;
+  quantity: number;
+  requiredCondition: 'any' | 'new' | 'refurbished' | 'used';
   maxBudgetPaise: number;
-  status: 'open' | 'fulfilled' | 'cancelled';
+  deliveryCity?: string;
+  deliveryPostalCode?: string;
+  preferredDeliveryDate?: Date;
+  expiresAt: Date;
+  photoAssetIds: string[];
+  deviceId?: mongoose.Types.ObjectId;
+  status: 'open' | 'fulfilled' | 'cancelled' | 'expired';
+  acceptedOfferId?: mongoose.Types.ObjectId;
   offers: mongoose.Types.DocumentArray<IWantedOfferSubdoc>;
   createdAt: Date;
   updatedAt: Date;
@@ -25,7 +45,8 @@ export interface IWantedRequestDocument extends Document {
 const WantedOfferSchema = new Schema<IWantedOfferSubdoc>(
   {
     sellerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    listingId: { type: Schema.Types.ObjectId, ref: 'Listing', required: true },
+    storeName: { type: String, trim: true, maxlength: 100 },
+    listingId: { type: Schema.Types.ObjectId, ref: 'Listing', required: false },
     offeredPricePaise: {
       type: Number,
       required: true,
@@ -35,13 +56,24 @@ const WantedOfferSchema = new Schema<IWantedOfferSubdoc>(
         message: 'offeredPricePaise must be an integer',
       },
     },
-    notes: { type: String, trim: true, maxlength: 500 },
+    availableQuantity: { type: Number, required: true, min: 1, default: 1 },
+    condition: {
+      type: String,
+      enum: ['new', 'refurbished', 'used'],
+      default: 'new',
+    },
+    compatibilityEvidence: { type: String, trim: true, maxlength: 1000 },
+    warrantyDays: { type: Number, min: 0, default: 30 },
+    shippingCostPaise: { type: Number, min: 0, default: 0 },
+    estimatedDeliveryDays: { type: Number, min: 1, default: 3 },
+    notes: { type: String, trim: true, maxlength: 1000 },
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'declined'],
+      enum: ['pending', 'accepted', 'rejected', 'withdrawn', 'declined'],
       default: 'pending',
     },
     createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
   },
   { _id: true }
 );
@@ -49,23 +81,42 @@ const WantedOfferSchema = new Schema<IWantedOfferSubdoc>(
 const WantedRequestSchema = new Schema<IWantedRequestDocument>(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    deviceId: { type: Schema.Types.ObjectId, ref: 'Device', required: true },
-    componentType: { type: String, required: true, trim: true, maxlength: 80 },
-    description: { type: String, required: true, trim: true, maxlength: 1000 },
+    category: { type: String, trim: true, default: 'Smartphones', maxlength: 100 },
+    brand: { type: String, trim: true, default: 'Generic', maxlength: 100 },
+    deviceModel: { type: String, trim: true, default: 'Various', maxlength: 150 },
+    partNumber: { type: String, trim: true, maxlength: 100 },
+    componentType: { type: String, required: true, trim: true, maxlength: 120 },
+    description: { type: String, required: true, trim: true, maxlength: 2000 },
+    quantity: { type: Number, required: true, min: 1, max: 100, default: 1 },
+    requiredCondition: {
+      type: String,
+      enum: ['any', 'new', 'refurbished', 'used'],
+      default: 'any',
+    },
     maxBudgetPaise: {
       type: Number,
       required: true,
-      min: 1,
+      min: 0,
       validate: {
         validator: Number.isInteger,
         message: 'maxBudgetPaise must be an integer',
       },
     },
+    deliveryCity: { type: String, trim: true, maxlength: 100 },
+    deliveryPostalCode: { type: String, trim: true, maxlength: 20 },
+    preferredDeliveryDate: { type: Date },
+    expiresAt: {
+      type: Date,
+      default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+    photoAssetIds: [{ type: String }],
+    deviceId: { type: Schema.Types.ObjectId, ref: 'Device', required: false },
     status: {
       type: String,
-      enum: ['open', 'fulfilled', 'cancelled'],
+      enum: ['open', 'fulfilled', 'cancelled', 'expired'],
       default: 'open',
     },
+    acceptedOfferId: { type: Schema.Types.ObjectId },
     offers: { type: [WantedOfferSchema], default: [] },
   },
   { timestamps: true }
@@ -73,9 +124,9 @@ const WantedRequestSchema = new Schema<IWantedRequestDocument>(
 
 WantedRequestSchema.index({ status: 1, createdAt: -1 });
 WantedRequestSchema.index({ customerId: 1, createdAt: -1 });
+WantedRequestSchema.index({ brand: 1, category: 1, status: 1 });
 
 export const WantedRequestModel = mongoose.model<IWantedRequestDocument>(
   'WantedRequest',
   WantedRequestSchema
 );
-

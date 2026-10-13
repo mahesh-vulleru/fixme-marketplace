@@ -6,7 +6,9 @@ import {
   MarkShippedSchema,
   CreateReviewSchema,
   CreateWantedRequestSchema,
+  UpdateWantedRequestSchema,
   CreateWantedOfferSchema,
+  UpdateWantedOfferSchema,
   CreateDisputeSchema,
 } from '@fixme/validation';
 import { SellerTrustController } from '../controllers/sellerTrustController';
@@ -16,6 +18,20 @@ import { validateBody } from '../validators/validateRequest';
 const router = Router();
 
 // Seller Inventory & Operations
+router.get(
+  '/seller/listings',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.listMyListings
+);
+
+router.post(
+  '/seller/listings',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.createSellerListing
+);
+
 router.patch(
   '/seller/inventory/:listingId',
   authenticate,
@@ -71,6 +87,18 @@ router.post(
   validateBody(CreateWantedRequestSchema),
   SellerTrustController.createWantedRequest
 );
+router.get('/wanted-requests/:id', SellerTrustController.getWantedRequestById);
+router.patch(
+  '/wanted-requests/:id',
+  authenticate,
+  validateBody(UpdateWantedRequestSchema),
+  SellerTrustController.updateWantedRequest
+);
+router.patch(
+  '/wanted-requests/:id/cancel',
+  authenticate,
+  SellerTrustController.cancelWantedRequest
+);
 router.get('/wanted-requests/:id/offers', SellerTrustController.getWantedOffers);
 router.post(
   '/wanted-requests/:id/offers',
@@ -78,6 +106,29 @@ router.post(
   requireRole('seller', 'administrator', 'super_administrator'),
   validateBody(CreateWantedOfferSchema),
   SellerTrustController.createWantedOffer
+);
+router.patch(
+  '/wanted-requests/:id/offers/:offerId',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  validateBody(UpdateWantedOfferSchema),
+  SellerTrustController.updateWantedOffer
+);
+router.delete(
+  '/wanted-requests/:id/offers/:offerId',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.withdrawWantedOffer
+);
+router.patch(
+  '/wanted-requests/:id/offers/:offerId/accept',
+  authenticate,
+  SellerTrustController.acceptWantedOffer
+);
+router.patch(
+  '/wanted-requests/:id/offers/:offerId/reject',
+  authenticate,
+  SellerTrustController.rejectWantedOffer
 );
 
 // Disputes & Notifications
