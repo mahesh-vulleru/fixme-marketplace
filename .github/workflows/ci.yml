@@ -1,0 +1,51 @@
+name: FixMe.com CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+    env:
+      NODE_ENV: test
+      PORT: 5000
+      MONGODB_URI: mongodb://127.0.0.1:27017/fixme_test
+      CLIENT_URL: http://localhost:5173
+      ADMIN_URL: http://localhost:5174
+      JWT_ACCESS_SECRET: ci-access-secret-minimum-32-characters-long-1234
+      JWT_REFRESH_SECRET: ci-refresh-secret-minimum-32-characters-long-1234
+      COOKIE_SECRET: ci-cookie-secret-minimum-32-characters-long-1234
+      CSRF_SECRET: ci-csrf-secret-minimum-16-chars
+      STORAGE_PROVIDER: local
+      PAYMENT_PROVIDER: mock_signed
+      PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-16-chars
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build shared packages and applications
+        run: npm run build
+
+      - name: Run typechecks and linter
+        run: npm run lint
+
+      - name: Run automated test suites
+        run: npm test
+

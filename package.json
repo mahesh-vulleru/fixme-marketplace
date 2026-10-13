@@ -1,0 +1,27 @@
+{
+  "name": "fixme-marketplace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FixMe.com — Find the Part. Fix the Device. Multi-vendor electronics spare-parts marketplace monorepo.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build --workspace=@fixme/shared-types && npm run build --workspace=@fixme/validation && npm run build --workspace=@fixme/api-contracts",
+    "build": "npm run build:packages && npm run build --workspace=@fixme/server && npm run build --workspace=@fixme/client && npm run build --workspace=@fixme/admin",
+    "dev:server": "npm run dev --workspace=@fixme/server",
+    "dev:client": "npm run dev --workspace=@fixme/client",
+    "dev:admin": "npm run dev --workspace=@fixme/admin",
+    "test": "npm run test --workspace=@fixme/server",
+    "typecheck": "npm run build:packages && npm run typecheck --workspace=@fixme/server && npm run typecheck --workspace=@fixme/client && npm run typecheck --workspace=@fixme/admin",
+    "seed": "npm run seed --workspace=@fixme/server"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
