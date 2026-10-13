@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { DISPUTE_STATUSES } from '@fixme/shared-types';
 import {
   UpdateInventorySchema,
+  CreateSellerListingSchema,
+  UpdateSellerListingSchema,
+  UpdateListingStatusSchema,
+  CreateStockAdjustmentSchema,
   MarkShippedSchema,
   CreateReviewSchema,
   CreateWantedRequestSchema,
@@ -17,7 +21,29 @@ import { validateBody } from '../validators/validateRequest';
 
 const router = Router();
 
+// Canonical Parts Search for Sellers
+router.get(
+  '/seller/canonical-parts',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.searchCanonicalParts
+);
+
 // Seller Inventory & Operations
+router.get(
+  '/seller/inventory/summary',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.getInventorySummary
+);
+
+router.get(
+  '/seller/stock-movements',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.listStockMovements
+);
+
 router.get(
   '/seller/listings',
   authenticate,
@@ -29,7 +55,31 @@ router.post(
   '/seller/listings',
   authenticate,
   requireRole('seller', 'administrator', 'super_administrator'),
+  validateBody(CreateSellerListingSchema),
   SellerTrustController.createSellerListing
+);
+
+router.get(
+  '/seller/listings/:listingId',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.getSellerListing
+);
+
+router.patch(
+  '/seller/listings/:listingId',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  validateBody(UpdateSellerListingSchema),
+  SellerTrustController.updateSellerListing
+);
+
+router.patch(
+  '/seller/listings/:listingId/status',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  validateBody(UpdateListingStatusSchema),
+  SellerTrustController.updateListingStatus
 );
 
 router.patch(
@@ -38,6 +88,21 @@ router.patch(
   requireRole('seller', 'administrator', 'super_administrator'),
   validateBody(UpdateInventorySchema),
   SellerTrustController.adjustInventory
+);
+
+router.post(
+  '/seller/listings/:listingId/stock-adjustments',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  validateBody(CreateStockAdjustmentSchema),
+  SellerTrustController.adjustInventory
+);
+
+router.get(
+  '/seller/listings/:listingId/stock-movements',
+  authenticate,
+  requireRole('seller', 'administrator', 'super_administrator'),
+  SellerTrustController.listStockMovements
 );
 
 router.get(

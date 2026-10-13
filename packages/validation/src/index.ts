@@ -244,9 +244,71 @@ export const CheckoutSchema = z.object({
 });
 
 export const UpdateInventorySchema = z.object({
-  stockAvailable: z.number().int().min(0),
+  stockAvailable: z.coerce.number().int().min(0),
   reason: z.string().min(3).max(200).default('Seller manual stock adjustment'),
 });
+
+export const CreateSellerListingSchema = z.object({
+  partId: z.string().min(1, 'Canonical part is required'),
+  title: z.string().min(3, 'Listing title must be at least 3 characters').max(160).trim(),
+  sellerSku: z.string().min(2, 'SKU must be at least 2 characters').max(64).trim().optional(),
+  condition: z.enum(PART_CONDITIONS),
+  pricePaise: z.coerce.number().int().positive('Price per piece must be a positive integer in paise'),
+  currency: z.literal('INR').default('INR'),
+  stockAvailable: z.coerce.number().int().min(0, 'Initial stock cannot be negative').max(100000, 'Initial stock exceeds 100,000 units limit').optional(),
+  initialStock: z.coerce.number().int().min(0, 'Initial stock cannot be negative').max(100000, 'Initial stock exceeds 100,000 units limit').optional(),
+  warrantyDays: z.coerce.number().int().min(0).max(1095).default(30),
+  lowStockThreshold: z.coerce.number().int().min(0).max(1000).default(5),
+  description: z.string().max(2000).trim().optional(),
+  assetIds: z.array(z.string()).default([]),
+  shippingFeePaise: z.coerce.number().int().min(0).default(0),
+  dispatchLeadTimeDays: z.coerce.number().int().min(1).max(30).default(2),
+  shippingOriginPostalCode: z.string().max(20).trim().optional(),
+  status: z.enum(['draft', 'pending_review', 'active']).default('pending_review'),
+}).refine((data) => data.stockAvailable !== undefined || data.initialStock !== undefined, {
+  message: 'Initial stock is required',
+  path: ['stockAvailable'],
+});
+
+export const UpdateSellerListingSchema = z.object({
+  title: z.string().min(3).max(160).trim().optional(),
+  sellerSku: z.string().min(2).max(64).trim().optional(),
+  condition: z.enum(PART_CONDITIONS).optional(),
+  pricePaise: z.coerce.number().int().positive().optional(),
+  warrantyDays: z.coerce.number().int().min(0).max(1095).optional(),
+  lowStockThreshold: z.coerce.number().int().min(0).max(1000).optional(),
+  description: z.string().max(2000).trim().optional(),
+  assetIds: z.array(z.string()).optional(),
+  shippingFeePaise: z.coerce.number().int().min(0).optional(),
+  dispatchLeadTimeDays: z.coerce.number().int().min(1).max(30).optional(),
+  shippingOriginPostalCode: z.string().max(20).trim().optional(),
+});
+
+export const UpdateListingStatusSchema = z.object({
+  status: z.enum(['draft', 'pending_review', 'active', 'paused', 'archived']),
+});
+
+export const CreateStockAdjustmentSchema = z.object({
+  movementType: z.enum([
+    'initial_receipt',
+    'restock',
+    'manual_adjustment',
+    'damaged',
+    'lost',
+    'return_restock',
+  ]).default('manual_adjustment'),
+  quantityDelta: z.coerce.number().int().optional(),
+  newStockAvailable: z.coerce.number().int().min(0).optional(),
+  reason: z.string().trim().min(3, 'A clear reason is required for stock movements').max(300),
+  reference: z.string().trim().max(100).optional(),
+  internalNote: z.string().trim().max(500).optional(),
+}).refine(
+  (data) => data.quantityDelta !== undefined || data.newStockAvailable !== undefined,
+  {
+    message: 'Either quantityDelta or newStockAvailable must be specified',
+    path: ['newStockAvailable'],
+  }
+);
 
 export const MarkShippedSchema = z.object({
   subOrderId: z.string().min(1),

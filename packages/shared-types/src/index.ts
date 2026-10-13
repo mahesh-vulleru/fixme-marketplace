@@ -17,8 +17,30 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const PART_CONDITIONS = ['new', 'used', 'refurbished', 'for_parts'] as const;
 export type PartCondition = (typeof PART_CONDITIONS)[number];
 
-export const LISTING_STATUSES = ['draft', 'pending_review', 'active', 'suspended'] as const;
+export const LISTING_STATUSES = [
+  'draft',
+  'pending_review',
+  'active',
+  'rejected',
+  'paused',
+  'out_of_stock',
+  'archived',
+  'suspended',
+] as const;
 export type ListingStatus = (typeof LISTING_STATUSES)[number];
+
+export const INVENTORY_MOVEMENT_TYPES = [
+  'initial_receipt',
+  'restock',
+  'manual_adjustment',
+  'reserve',
+  'commit',
+  'release',
+  'return_restock',
+  'damaged',
+  'lost',
+] as const;
+export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
 
 export const COMPATIBILITY_STATUSES = ['pending', 'verified', 'rejected'] as const;
 export type CompatibilityStatus = (typeof COMPATIBILITY_STATUSES)[number];
@@ -146,6 +168,7 @@ export interface IListing {
   _id: string;
   partId: string;
   sellerId: string;
+  sellerSku?: string;
   title: string;
   description?: string;
   condition: PartCondition;
@@ -153,12 +176,34 @@ export interface IListing {
   currency: 'INR';
   stockAvailable: number;
   stockReserved: number;
+  lowStockThreshold?: number;
   assetIds: string[];
   imageUrls?: string[];
   warrantyDays: number;
+  shippingFeePaise?: number;
+  dispatchLeadTimeDays?: number;
+  shippingOriginPostalCode?: string;
   status: ListingStatus;
+  rejectionReason?: string;
+  moderationNotes?: string;
   createdAt: string | Date;
   updatedAt: string | Date;
+}
+
+export interface IInventoryMovement {
+  _id: string;
+  listingId: string;
+  sellerId: string;
+  orderId?: string;
+  movementType: InventoryMovementType;
+  quantityDelta: number;
+  previousAvailable: number;
+  newAvailable: number;
+  reason: string;
+  reference?: string;
+  notes?: string;
+  actorUserId?: string;
+  createdAt: string | Date;
 }
 
 export interface IAsset {

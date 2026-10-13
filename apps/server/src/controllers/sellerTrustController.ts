@@ -8,10 +8,47 @@ export class SellerTrustController {
     next: NextFunction
   ): Promise<void> {
     try {
-      const items = await SellerTrustService.listMyListings(req.user!.id);
+      const filters = {
+        status: req.query.status as string,
+        condition: req.query.condition as string,
+        lowStock: req.query.lowStock === 'true',
+        outOfStock: req.query.outOfStock === 'true',
+        q: req.query.q as string,
+        sort: req.query.sort as string,
+        page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      };
+      const result = await SellerTrustService.listMyListings(req.user!.id, filters);
+      const data = req.query.paginated === 'true' ? result : result.listings;
       res.status(200).json({
         success: true,
-        data: items,
+        data,
+        pagination: {
+          page: result.page,
+          limit: result.limit,
+          total: result.total,
+          totalPages: result.totalPages,
+        },
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async getSellerListing(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const listing = await SellerTrustService.getSellerListingById(
+        req.user!.id,
+        req.params.listingId
+      );
+      res.status(200).json({
+        success: true,
+        data: listing,
         requestId: req.requestId,
       });
     } catch (err) {
@@ -30,13 +67,62 @@ export class SellerTrustController {
         sellerRole: req.user!.role,
         partId: req.body.partId,
         title: req.body.title || req.body.sku || 'Verified Spare Part Listing',
+        sellerSku: req.body.sellerSku,
         description: req.body.description,
         condition: req.body.condition,
         pricePaise: req.body.pricePaise,
-        stockAvailable: req.body.stockAvailable ?? req.body.stockOnHand ?? 0,
+        stockAvailable: req.body.stockAvailable ?? req.body.initialStock ?? req.body.stockOnHand ?? 0,
         warrantyDays: req.body.warrantyDays,
+        lowStockThreshold: req.body.lowStockThreshold,
+        shippingFeePaise: req.body.shippingFeePaise,
+        dispatchLeadTimeDays: req.body.dispatchLeadTimeDays,
+        shippingOriginPostalCode: req.body.shippingOriginPostalCode,
+        assetIds: req.body.assetIds,
+        status: req.body.status,
       });
       res.status(201).json({
+        success: true,
+        data: listing,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async updateSellerListing(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const listing = await SellerTrustService.updateSellerListing({
+        sellerId: req.user!.id,
+        listingId: req.params.listingId,
+        update: req.body,
+      });
+      res.status(200).json({
+        success: true,
+        data: listing,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async updateListingStatus(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const listing = await SellerTrustService.updateListingStatus({
+        sellerId: req.user!.id,
+        listingId: req.params.listingId,
+        status: req.body.status,
+      });
+      res.status(200).json({
         success: true,
         data: listing,
         requestId: req.requestId,
@@ -55,12 +141,83 @@ export class SellerTrustController {
       const result = await SellerTrustService.adjustSellerInventory({
         sellerId: req.user!.id,
         listingId: req.params.listingId,
-        stockAvailable: req.body.stockAvailable,
+        movementType: req.body.movementType,
+        quantityDelta: req.body.quantityDelta,
+        stockAvailable: req.body.stockAvailable ?? req.body.newStockAvailable,
         reason: req.body.reason,
+        reference: req.body.reference,
+        notes: req.body.internalNote || req.body.notes,
       });
       res.status(200).json({
         success: true,
         data: result,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async getInventorySummary(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const summary = await SellerTrustService.getSellerInventorySummary(req.user!.id);
+      res.status(200).json({
+        success: true,
+        data: summary,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async listStockMovements(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const movements = await SellerTrustService.listStockMovements({
+        sellerId: req.user!.id,
+        listingId: req.params.listingId || (req.query.listingId as string),
+        movementType: req.query.movementType as string,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: movements,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async searchCanonicalParts(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const result = await SellerTrustService.searchCanonicalParts({
+        q: req.query.q as string,
+        categoryId: req.query.categoryId as string,
+        brandId: req.query.brandId as string,
+        page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: result.parts,
+        pagination: {
+          page: result.page,
+          total: result.total,
+          totalPages: result.totalPages,
+        },
         requestId: req.requestId,
       });
     } catch (err) {

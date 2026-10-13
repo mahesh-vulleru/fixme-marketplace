@@ -1,6 +1,7 @@
 import { DisputeStatus } from '@fixme/shared-types';
 import { ListingModel, IListingDocument } from '../models/Listing';
 import { InventoryMovementModel, IInventoryMovementDocument } from '../models/InventoryMovement';
+import { PartModel } from '../models/Part';
 import { OrderModel, IOrderDocument } from '../models/Order';
 import { ShipmentModel, IShipmentDocument } from '../models/Shipment';
 import { ReviewModel, IReviewDocument } from '../models/Review';
@@ -28,12 +29,117 @@ export class SellerTrustService {
   }
 
   /**
-   * Lists listings owned exclusively by the authenticated seller.
+   * Lists listings owned exclusively by the authenticated seller with filtering, sorting and pagination.
    */
-  static async listMyListings(sellerId: string): Promise<IListingDocument[]> {
-    return ListingModel.find({ sellerId })
-      .populate('partId', 'name partNumber componentType oemReference')
-      .sort({ createdAt: -1 });
+  static async listMyListings(
+    sellerId: string,
+    filters?: {
+      status?: string;
+      condition?: string;
+      lowStock?: boolean;
+      outOfStock?: boolean;
+      q?: string;
+      sort?: string;
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<{
+    listings: IListingDocument[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const query: any = { sellerId };
+
+    if (filters?.status) {
+      query.status = filters.status;
+    }
+    if (filters?.condition) {
+      query.condition = filters.condition;
+    }
+    if (filters?.outOfStock) {
+      query.stockAvailable = 0;
+    }
+
+    if (filters?.q) {
+      const regex = new RegExp(filters.q.trim(), 'i');
+      query.$or = [{ title: regex }, { sellerSku: regex }];
+    }
+
+    let sortOption: any = { createdAt: -1 };
+    if (filters?.sort === 'price_asc') sortOption = { pricePaise: 1 };
+    if (filters?.sort === 'price_desc') sortOption = { pricePaise: -1 };
+    if (filters?.sort === 'stock_asc') sortOption = { stockAvailable: 1 };
+    if (filters?.sort === 'stock_desc') sortOption = { stockAvailable: -1 };
+    if (filters?.sort === 'oldest') sortOption = { createdAt: 1 };
+
+    const page = Math.max(1, filters?.page || 1);
+    const limit = Math.max(1, Math.min(100, filters?.limit || 50));
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      ListingModel.find(query)
+        .populate({
+          path: 'partId',
+          select: 'name partNumber componentType categoryId brandId oemReference description specifications',
+          populate: [
+            { path: 'categoryId', select: 'name slug' },
+            { path: 'brandId', select: 'name slug' },
+          ],
+        })
+        .populate('assetIds', 'deliveryUrl thumbnailUrl mimeType')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limit),
+      ListingModel.countDocuments(query),
+    ]);
+
+    let resultItems = items;
+    if (filters?.lowStock) {
+      resultItems = items.filter(
+        (l) => l.stockAvailable > 0 && l.stockAvailable <= (l.lowStockThreshold ?? 5)
+      );
+    }
+
+    return {
+      listings: resultItems,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  /**
+   * Retrieves single listing owned by the authenticated seller.
+   */
+  static async getSellerListingById(
+    sellerId: string,
+    listingId: string
+  ): Promise<IListingDocument> {
+    const listing = await ListingModel.findById(listingId)
+      .populate({
+        path: 'partId',
+        select: 'name partNumber componentType categoryId brandId oemReference description specifications',
+        populate: [
+          { path: 'categoryId', select: 'name slug' },
+          { path: 'brandId', select: 'name slug' },
+        ],
+      })
+      .populate('assetIds', 'deliveryUrl thumbnailUrl mimeType');
+
+    if (!listing) {
+      throw new AppError(404, 'LISTING_NOT_FOUND', 'Listing not found');
+    }
+    if (listing.sellerId.toString() !== sellerId) {
+      throw new AppError(
+        403,
+        'OWNERSHIP_VIOLATION',
+        'You cannot view details for another seller’s listing'
+      );
+    }
+    return listing;
   }
 
   /**
@@ -44,48 +150,268 @@ export class SellerTrustService {
     sellerRole?: string;
     partId: string;
     title: string;
+    sellerSku?: string;
     description?: string;
     condition: string;
     pricePaise: number;
     stockAvailable: number;
     warrantyDays?: number;
+    lowStockThreshold?: number;
+    shippingFeePaise?: number;
+    dispatchLeadTimeDays?: number;
+    shippingOriginPostalCode?: string;
+    assetIds?: string[];
+    status?: string;
   }): Promise<IListingDocument> {
     await this.requireApprovedSeller(params.sellerId, params.sellerRole);
-    return ListingModel.create({
-      partId: params.partId,
-      sellerId: params.sellerId,
-      title: params.title,
-      description: params.description || params.title,
-      condition: params.condition as any,
-      pricePaise: params.pricePaise,
-      stockAvailable: params.stockAvailable,
-      warrantyDays: params.warrantyDays ?? 90,
-      status: 'pending_review',
-    });
-  }
 
-  /**
-   * Adjusts seller listing stock and writes an immutable InventoryMovement record.
-   * Enforces strict ownership: a seller can only adjust their own listing.
-   */
-  static async adjustSellerInventory(params: {
-    sellerId: string;
-    listingId: string;
-    stockAvailable: number;
-    reason: string;
-  }): Promise<{
-    listing: IListingDocument;
-    movement: IInventoryMovementDocument;
-  }> {
+    const canonicalPart = await PartModel.findById(params.partId);
+    if (!canonicalPart || !canonicalPart.isActive) {
+      throw new AppError(
+        400,
+        'INVALID_CANONICAL_PART',
+        'Canonical spare part does not exist or is inactive'
+      );
+    }
+
+    const title = params.title.trim();
+    if (!title) {
+      throw new AppError(400, 'INVALID_TITLE', 'Listing title cannot be empty');
+    }
+
+    if (!Number.isInteger(params.pricePaise) || params.pricePaise <= 0) {
+      throw new AppError(
+        400,
+        'INVALID_PRICE',
+        'Price per piece must be a positive integer in paise'
+      );
+    }
+
     if (!Number.isInteger(params.stockAvailable) || params.stockAvailable < 0) {
       throw new AppError(
         400,
         'INVALID_STOCK_VALUE',
-        'stockAvailable must be a non-negative integer'
+        'Initial stock quantity must be a non-negative integer'
       );
     }
 
+    // Enforce unique SKU within seller's inventory
+    const sku = params.sellerSku?.trim();
+    if (sku) {
+      const existingSku = await ListingModel.findOne({
+        sellerId: params.sellerId,
+        sellerSku: sku,
+      });
+      if (existingSku) {
+        throw new AppError(
+          409,
+          'DUPLICATE_SELLER_SKU',
+          `Seller SKU '${sku}' is already assigned to another of your listings`
+        );
+      }
+    }
+
+    const initialStatus =
+      params.stockAvailable === 0
+        ? 'out_of_stock'
+        : params.status === 'draft'
+        ? 'draft'
+        : params.status === 'active'
+        ? 'active'
+        : 'pending_review';
+
+    const listing = await ListingModel.create({
+      partId: canonicalPart._id,
+      sellerId: params.sellerId,
+      sellerSku: sku || undefined,
+      title,
+      description: params.description?.trim() || title,
+      condition: params.condition as any,
+      pricePaise: params.pricePaise,
+      currency: 'INR',
+      stockAvailable: params.stockAvailable,
+      stockReserved: 0,
+      lowStockThreshold: params.lowStockThreshold ?? 5,
+      warrantyDays: params.warrantyDays ?? 30,
+      shippingFeePaise: params.shippingFeePaise ?? 0,
+      dispatchLeadTimeDays: params.dispatchLeadTimeDays ?? 2,
+      shippingOriginPostalCode: params.shippingOriginPostalCode?.trim() || undefined,
+      assetIds: params.assetIds || [],
+      status: initialStatus,
+    });
+
+    // Record initial stock movement if units received
+    if (params.stockAvailable > 0) {
+      await InventoryMovementModel.create({
+        listingId: listing._id,
+        sellerId: listing.sellerId,
+        movementType: 'initial_receipt',
+        quantityDelta: params.stockAvailable,
+        previousAvailable: 0,
+        newAvailable: params.stockAvailable,
+        reason: 'Initial stock intake upon listing publication',
+        actorUserId: params.sellerId as any,
+      });
+    }
+
+    return listing;
+  }
+
+  /**
+   * Updates a seller listing with ownership enforcement and moderation check.
+   */
+  static async updateSellerListing(params: {
+    sellerId: string;
+    listingId: string;
+    update: {
+      title?: string;
+      sellerSku?: string;
+      description?: string;
+      condition?: string;
+      pricePaise?: number;
+      warrantyDays?: number;
+      lowStockThreshold?: number;
+      shippingFeePaise?: number;
+      dispatchLeadTimeDays?: number;
+      shippingOriginPostalCode?: string;
+      assetIds?: string[];
+    };
+  }): Promise<IListingDocument> {
     const listing = await ListingModel.findById(params.listingId);
+    if (!listing) {
+      throw new AppError(404, 'LISTING_NOT_FOUND', 'Listing not found');
+    }
+    if (listing.sellerId.toString() !== params.sellerId) {
+      throw new AppError(
+        403,
+        'OWNERSHIP_VIOLATION',
+        'You cannot modify another seller’s listing'
+      );
+    }
+
+    if (params.update.sellerSku !== undefined) {
+      const sku = params.update.sellerSku.trim();
+      if (sku && sku !== listing.sellerSku) {
+        const existingSku = await ListingModel.findOne({
+          sellerId: params.sellerId,
+          sellerSku: sku,
+          _id: { $ne: listing._id },
+        });
+        if (existingSku) {
+          throw new AppError(
+            409,
+            'DUPLICATE_SKU',
+            `Seller SKU '${sku}' is already in use by another of your listings`
+          );
+        }
+        listing.sellerSku = sku;
+      }
+    }
+
+    if (params.update.title !== undefined) {
+      const title = params.update.title.trim();
+      if (!title) throw new AppError(400, 'INVALID_TITLE', 'Title cannot be empty');
+      listing.title = title;
+    }
+
+    if (params.update.pricePaise !== undefined) {
+      if (!Number.isInteger(params.update.pricePaise) || params.update.pricePaise <= 0) {
+        throw new AppError(
+          400,
+          'INVALID_PRICE',
+          'Price per piece must be a positive integer in paise'
+        );
+      }
+      listing.pricePaise = params.update.pricePaise;
+    }
+
+    if (params.update.description !== undefined) {
+      listing.description = params.update.description.trim();
+    }
+    if (params.update.condition !== undefined) {
+      listing.condition = params.update.condition as any;
+    }
+    if (params.update.warrantyDays !== undefined) {
+      listing.warrantyDays = params.update.warrantyDays;
+    }
+    if (params.update.lowStockThreshold !== undefined) {
+      listing.lowStockThreshold = params.update.lowStockThreshold;
+    }
+    if (params.update.shippingFeePaise !== undefined) {
+      listing.shippingFeePaise = params.update.shippingFeePaise;
+    }
+    if (params.update.dispatchLeadTimeDays !== undefined) {
+      listing.dispatchLeadTimeDays = params.update.dispatchLeadTimeDays;
+    }
+    if (params.update.shippingOriginPostalCode !== undefined) {
+      listing.shippingOriginPostalCode = params.update.shippingOriginPostalCode.trim();
+    }
+    if (params.update.assetIds !== undefined) {
+      listing.assetIds = params.update.assetIds as any;
+    }
+
+    await listing.save();
+    return listing;
+  }
+
+  /**
+   * Updates listing status with permission checks.
+   */
+  static async updateListingStatus(params: {
+    sellerId: string;
+    listingId: string;
+    status: string;
+  }): Promise<IListingDocument> {
+    const listing = await ListingModel.findById(params.listingId);
+    if (!listing) {
+      throw new AppError(404, 'LISTING_NOT_FOUND', 'Listing not found');
+    }
+    if (listing.sellerId.toString() !== params.sellerId) {
+      throw new AppError(
+        403,
+        'OWNERSHIP_VIOLATION',
+        'You cannot change the status of another seller’s listing'
+      );
+    }
+
+    const permitted = ['draft', 'pending_review', 'paused', 'archived', 'active'];
+    if (!permitted.includes(params.status)) {
+      throw new AppError(400, 'INVALID_STATUS', `Status '${params.status}' is not permitted`);
+    }
+
+    if (params.status === 'active') {
+      await this.requireApprovedSeller(params.sellerId);
+      if (listing.stockAvailable === 0) {
+        throw new AppError(
+          400,
+          'CANNOT_ACTIVATE_EMPTY_STOCK',
+          'Cannot activate a listing with 0 available stock'
+        );
+      }
+    }
+
+    listing.status = params.status as any;
+    await listing.save();
+    return listing;
+  }
+
+  /**
+   * Adjusts seller listing stock and writes an immutable InventoryMovement record.
+   */
+  static async adjustSellerInventory(params: {
+    sellerId: string;
+    listingId: string;
+    movementType?: string;
+    quantityDelta?: number;
+    stockAvailable?: number;
+    reason: string;
+    reference?: string;
+    notes?: string;
+  }): Promise<{
+    listing: IListingDocument;
+    movement: IInventoryMovementDocument;
+  }> {
+    let listing = await ListingModel.findById(params.listingId);
     if (!listing) {
       throw new AppError(404, 'LISTING_NOT_FOUND', 'Listing not found');
     }
@@ -98,24 +424,228 @@ export class SellerTrustService {
       );
     }
 
-    const previousAvailable = listing.stockAvailable;
-    const quantityDelta = params.stockAvailable - previousAvailable;
+    if (!params.reason || !params.reason.trim()) {
+      throw new AppError(400, 'REASON_REQUIRED', 'A clear reason is required for stock movements');
+    }
 
-    listing.stockAvailable = params.stockAvailable;
-    await listing.save();
+    const previousAvailable = listing.stockAvailable;
+    let nextAvailable: number;
+    let delta: number;
+
+    if (params.quantityDelta !== undefined) {
+      if (!Number.isInteger(params.quantityDelta)) {
+        throw new AppError(400, 'INVALID_DELTA', 'quantityDelta must be an integer');
+      }
+      delta = params.quantityDelta;
+
+      const filter: any = { _id: params.listingId, sellerId: params.sellerId };
+      if (delta < 0) {
+        filter.stockAvailable = { $gte: Math.abs(delta) };
+      }
+
+      const updated = await ListingModel.findOneAndUpdate(
+        filter,
+        { $inc: { stockAvailable: delta } },
+        { new: true }
+      );
+
+      if (!updated) {
+        throw new AppError(
+          400,
+          'NEGATIVE_STOCK_PREVENTED',
+          `Cannot deduct ${Math.abs(delta)} units: only ${previousAvailable} available on hand`
+        );
+      }
+
+      nextAvailable = updated.stockAvailable;
+      if (nextAvailable === 0 && updated.status === 'active') {
+        updated.status = 'out_of_stock';
+        await updated.save();
+      } else if (nextAvailable > 0 && updated.status === 'out_of_stock') {
+        updated.status = 'active';
+        await updated.save();
+      }
+      listing = updated;
+    } else if (params.stockAvailable !== undefined) {
+      if (!Number.isInteger(params.stockAvailable) || params.stockAvailable < 0) {
+        throw new AppError(
+          400,
+          'INVALID_STOCK_VALUE',
+          'stockAvailable must be a non-negative integer'
+        );
+      }
+      nextAvailable = params.stockAvailable;
+      delta = nextAvailable - previousAvailable;
+
+      listing.stockAvailable = nextAvailable;
+      if (nextAvailable === 0 && listing.status === 'active') {
+        listing.status = 'out_of_stock';
+      } else if (nextAvailable > 0 && listing.status === 'out_of_stock') {
+        listing.status = 'active';
+      }
+      await listing.save();
+    } else {
+      throw new AppError(400, 'MISSING_ADJUSTMENT_VALUE', 'Specify stockAvailable or quantityDelta');
+    }
+
+    const movementType = (params.movementType || 'manual_adjustment') as any;
 
     const movement = await InventoryMovementModel.create({
       listingId: listing._id,
       sellerId: listing.sellerId,
-      movementType: 'manual_adjustment',
-      quantityDelta,
+      movementType,
+      quantityDelta: delta,
       previousAvailable,
-      newAvailable: params.stockAvailable,
-      reason: params.reason,
+      newAvailable: nextAvailable,
+      reason: params.reason.trim(),
+      reference: params.reference?.trim() || undefined,
+      notes: params.notes?.trim() || undefined,
       actorUserId: params.sellerId as any,
     });
 
     return { listing, movement };
+  }
+
+  /**
+   * Computes authoritative inventory valuation, stock counts, and status metrics for a seller.
+   */
+  static async getSellerInventorySummary(sellerId: string): Promise<{
+    totalListings: number;
+    activeListings: number;
+    pendingListings: number;
+    pausedListings: number;
+    outOfStockListings: number;
+    lowStockListings: number;
+    totalSellableStock: number;
+    totalInventoryValuePaise: number;
+    recentMovements: IInventoryMovementDocument[];
+  }> {
+    const listings = await ListingModel.find({ sellerId });
+    const totalListings = listings.length;
+    let activeListings = 0;
+    let pendingListings = 0;
+    let pausedListings = 0;
+    let outOfStockListings = 0;
+    let lowStockListings = 0;
+    let totalSellableStock = 0;
+    let totalInventoryValuePaise = 0;
+
+    for (const item of listings) {
+      const avail = item.stockAvailable ?? 0;
+      const threshold = item.lowStockThreshold ?? 5;
+      const price = item.pricePaise ?? 0;
+
+      totalInventoryValuePaise += price * avail;
+
+      if (item.status === 'active') {
+        activeListings++;
+        totalSellableStock += avail;
+      } else if (item.status === 'pending_review') {
+        pendingListings++;
+      } else if (item.status === 'paused') {
+        pausedListings++;
+      }
+
+      if (avail === 0) {
+        outOfStockListings++;
+      } else if (avail <= threshold) {
+        lowStockListings++;
+      }
+    }
+
+    const recentMovements = await InventoryMovementModel.find({ sellerId })
+      .populate('listingId', 'title sellerSku pricePaise')
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    return {
+      totalListings,
+      activeListings,
+      pendingListings,
+      pausedListings,
+      outOfStockListings,
+      lowStockListings,
+      totalSellableStock,
+      totalInventoryValuePaise,
+      recentMovements,
+    };
+  }
+
+  /**
+   * Lists audited inventory movements for a seller.
+   */
+  static async listStockMovements(params: {
+    sellerId: string;
+    listingId?: string;
+    movementType?: string;
+    limit?: number;
+  }): Promise<IInventoryMovementDocument[]> {
+    const query: any = { sellerId: params.sellerId };
+    if (params.listingId) {
+      query.listingId = params.listingId;
+    }
+    if (params.movementType) {
+      query.movementType = params.movementType;
+    }
+    return InventoryMovementModel.find(query)
+      .populate('listingId', 'title sellerSku pricePaise condition')
+      .sort({ createdAt: -1 })
+      .limit(params.limit || 100);
+  }
+
+  /**
+   * Searchable canonical parts directory for sellers to map listings.
+   */
+  static async searchCanonicalParts(filters?: {
+    q?: string;
+    categoryId?: string;
+    brandId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    parts: any[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }> {
+    const query: any = { isActive: true };
+    if (filters?.categoryId) {
+      query.categoryId = filters.categoryId;
+    }
+    if (filters?.brandId) {
+      query.brandId = filters.brandId;
+    }
+    if (filters?.q) {
+      const regex = new RegExp(filters.q.trim(), 'i');
+      query.$or = [
+        { name: regex },
+        { partNumber: regex },
+        { componentType: regex },
+        { oemReference: regex },
+        { description: regex },
+      ];
+    }
+
+    const page = Math.max(1, filters?.page || 1);
+    const limit = Math.max(1, Math.min(100, filters?.limit || 30));
+    const skip = (page - 1) * limit;
+
+    const [parts, total] = await Promise.all([
+      PartModel.find(query)
+        .populate('categoryId', 'name slug')
+        .populate('brandId', 'name slug')
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit),
+      PartModel.countDocuments(query),
+    ]);
+
+    return {
+      parts,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 
   /**

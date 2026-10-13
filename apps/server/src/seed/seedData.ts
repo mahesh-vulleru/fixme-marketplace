@@ -308,6 +308,7 @@ export async function seedCatalogueData(sellerUserId?: mongoose.Types.ObjectId) 
     {
       partId: iphone13OledPart._id,
       sellerId: defaultSellerId,
+      sellerSku: 'IPH13-OLED-NEW',
       title: 'iPhone 13 Original Service Pack OLED Assembly (New)',
       description: 'Brand new sealed service pack display assembly with adhesive gasket.',
       condition: 'new',
@@ -326,6 +327,7 @@ export async function seedCatalogueData(sellerUserId?: mongoose.Types.ObjectId) 
     {
       partId: airpodsPro2LeftBudPart._id,
       sellerId: defaultSellerId,
+      sellerSku: 'APP2-L-BUD-RF',
       title: 'Genuine Apple AirPods Pro 2 Left Earbud A2699 — Sanitized & Tested',
       description: 'Tested for ANC, transparency mode, and battery health > 95%.',
       condition: 'refurbished',
@@ -344,6 +346,7 @@ export async function seedCatalogueData(sellerUserId?: mongoose.Types.ObjectId) 
     {
       partId: s22UltraBatteryPart._id,
       sellerId: defaultSellerId,
+      sellerSku: 'S22U-BATT-NEW',
       title: 'Samsung S22 Ultra EB-BS908ABY 5000mAh Zero-Cycle Battery',
       description: 'Fresh production batch with adhesive strips included.',
       condition: 'new',

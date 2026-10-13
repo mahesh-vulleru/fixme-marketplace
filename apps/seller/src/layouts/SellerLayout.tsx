@@ -1,6 +1,19 @@
 import React from 'react';
 import { Link, Outlet, useNavigate, Navigate } from 'react-router-dom';
-import { Store, Package, Layers, Truck, HelpCircle, IndianRupee, ShieldCheck, User, LogOut, LogIn } from 'lucide-react';
+import {
+  Store,
+  Package,
+  PlusCircle,
+  Layers,
+  History,
+  Truck,
+  HelpCircle,
+  IndianRupee,
+  ShieldCheck,
+  Settings,
+  LogOut,
+  LogIn,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getCrossAppUrlForRole } from '../lib/urls';
 
@@ -56,56 +69,63 @@ export const SellerLayout: React.FC = () => {
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-white"
           >
             <Store className="w-4 h-4 text-emerald-400" />
-            1. Seller Overview
+            1. Dashboard
           </Link>
           <Link
             to="/listings"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
           >
             <Package className="w-4 h-4 text-emerald-400" />
-            2. Spare-Part Listings
+            2. My Listings
+          </Link>
+          <Link
+            to="/listings/create"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
+          >
+            <PlusCircle className="w-4 h-4 text-lime-400" />
+            3. Create Listing
           </Link>
           <Link
             to="/inventory"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
           >
             <Layers className="w-4 h-4 text-cyan-400" />
-            3. Inventory Engine
+            4. Inventory
+          </Link>
+          <Link
+            to="/movements"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
+          >
+            <History className="w-4 h-4 text-teal-400" />
+            5. Stock Movements
           </Link>
           <Link
             to="/orders"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
           >
             <Truck className="w-4 h-4 text-amber-400" />
-            4. Order Fulfillment
+            6. Orders
           </Link>
           <Link
             to="/wanted"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
           >
             <HelpCircle className="w-4 h-4 text-purple-400" />
-            5. Wanted-Part Requests
+            7. Wanted Spare Parts
           </Link>
           <Link
             to="/settlements"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
           >
-            <IndianRupee className="w-4 h-4 text-teal-400" />
-            6. Earnings & Payouts
+            <IndianRupee className="w-4 h-4 text-yellow-400" />
+            8. Settlements
           </Link>
           <Link
-            to="/verification"
+            to="/settings"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
           >
-            <ShieldCheck className="w-4 h-4 text-lime-400" />
-            7. KYC & Verification
-          </Link>
-          <Link
-            to="/profile"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-emerald-900 text-emerald-200"
-          >
-            <User className="w-4 h-4 text-blue-400" />
-            8. Profile & Alerts
+            <Settings className="w-4 h-4 text-blue-400" />
+            9. Store Settings
           </Link>
         </nav>
 

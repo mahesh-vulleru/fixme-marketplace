@@ -12,21 +12,27 @@ import { SellerSettlementsPage } from '../pages/seller/SellerSettlementsPage';
 import { SellerVerificationPage } from '../pages/seller/SellerVerificationPage';
 import { SellerProfilePage } from '../pages/seller/SellerProfilePage';
 
+import { SellerCreateListingPage } from '../pages/seller/SellerCreateListingPage';
+import { SellerStockMovementsPage } from '../pages/seller/SellerStockMovementsPage';
+
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<SellerLayout />}>
             <Route index element={<SellerDashboardPage />} />
             <Route path="listings" element={<SellerListingsPage />} />
+            <Route path="listings/create" element={<SellerCreateListingPage />} />
             <Route path="inventory" element={<SellerInventoryPage />} />
+            <Route path="movements" element={<SellerStockMovementsPage />} />
             <Route path="orders" element={<SellerOrdersPage />} />
             <Route path="wanted" element={<SellerWantedPage />} />
             <Route path="settlements" element={<SellerSettlementsPage />} />
             <Route path="verification" element={<SellerVerificationPage />} />
             <Route path="profile" element={<SellerProfilePage />} />
+            <Route path="settings" element={<SellerProfilePage />} />
             <Route path="*" element={<SellerDashboardPage />} />
           </Route>
         </Routes>

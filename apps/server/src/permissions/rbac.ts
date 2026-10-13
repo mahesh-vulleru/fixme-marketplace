@@ -89,12 +89,17 @@ export async function authenticate(
     try {
       decoded = jwt.verify(token, env.SESSION_SECRET) as typeof decoded;
     } catch {
+      _res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
       throw new AppError(401, 'INVALID_SESSION_TOKEN', 'Invalid or expired session token');
     }
 
     // Verify user is still active in DB and tokenVersion has not been invalidated
     const userDoc = await UserModel.findById(decoded.id);
-    if (!userDoc || !userDoc.isActive) {
+    if (!userDoc) {
+      _res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+      throw new AppError(401, 'INVALID_SESSION_TOKEN', 'Session user not found');
+    }
+    if (!userDoc.isActive) {
       throw new AppError(403, 'ACCOUNT_SUSPENDED', 'User account is inactive or suspended');
     }
 
