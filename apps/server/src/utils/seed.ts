@@ -1,3 +1,4 @@
+import '../config/dns';
 import mongoose from 'mongoose';
 import { connectDatabase } from '../config/db';
 import { seedCatalogueData } from '../seed/seedData';

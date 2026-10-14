@@ -1,5 +1,8 @@
+import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import { env } from '../../config/env';
+import { AppError } from '../../middleware/errorHandler';
 
 export interface SignedUploadIntent {
   storageKey: string;
@@ -17,6 +20,15 @@ export interface IStorageAdapter {
     sizeBytes: number;
   }): Promise<SignedUploadIntent>;
   deleteObject(storageKey: string): Promise<void>;
+  saveLocalFile(storageKey: string, buffer: Buffer): Promise<void>;
+  getLocalFile(storageKey: string): { filePath: string; exists: boolean };
+  verifyUploadToken(params: {
+    storageKey: string;
+    mimeType: string;
+    sizeBytes: number;
+    expiresAt: string;
+    token: string;
+  }): boolean;
 }
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -26,6 +38,64 @@ const MIME_TO_EXT: Record<string, string> = {
 };
 
 export class StorageAdapter implements IStorageAdapter {
+  getUploadsDir(): string {
+    const dir = process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uploads');
+    return dir;
+  }
+
+  resolveSafePath(storageKey: string): string {
+    const baseDir = this.getUploadsDir();
+    if (!storageKey || storageKey.includes('..') || storageKey.includes('\0') || storageKey.includes('\\')) {
+      throw new AppError(400, 'INVALID_STORAGE_KEY', 'Invalid storage key: path traversal prohibited');
+    }
+    const resolved = path.resolve(baseDir, storageKey);
+    if (!resolved.startsWith(baseDir)) {
+      throw new AppError(400, 'INVALID_STORAGE_KEY', 'Invalid storage key: path traversal prohibited');
+    }
+    return resolved;
+  }
+
+  async saveLocalFile(storageKey: string, buffer: Buffer): Promise<void> {
+    const targetPath = this.resolveSafePath(storageKey);
+    await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.promises.writeFile(targetPath, buffer);
+  }
+
+  getLocalFile(storageKey: string): { filePath: string; exists: boolean } {
+    const targetPath = this.resolveSafePath(storageKey);
+    const exists = fs.existsSync(targetPath);
+    return { filePath: targetPath, exists };
+  }
+
+  async deleteObject(storageKey: string): Promise<void> {
+    try {
+      const targetPath = this.resolveSafePath(storageKey);
+      if (fs.existsSync(targetPath)) {
+        await fs.promises.unlink(targetPath);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
+    }
+  }
+
+  verifyUploadToken(params: {
+    storageKey: string;
+    mimeType: string;
+    sizeBytes: number;
+    expiresAt: string;
+    token: string;
+  }): boolean {
+    if (!params.token) return false;
+    const expected = crypto
+      .createHmac('sha256', env.SESSION_SECRET)
+      .update(`${params.storageKey}:${params.mimeType}:${params.sizeBytes}:${params.expiresAt}`)
+      .digest('hex');
+    if (expected.length !== params.token.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(params.token));
+  }
+
   async createUploadIntent(params: {
     ownerUserId: string;
     assetType: string;
@@ -44,7 +114,8 @@ export class StorageAdapter implements IStorageAdapter {
       .update(`${storageKey}:${params.mimeType}:${params.sizeBytes}:${expiresAt}`)
       .digest('hex');
 
-    if (env.STORAGE_PROVIDER === 'cloudinary' && env.CLOUDINARY_CLOUD_NAME) {
+    const provider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
+    if (provider === 'cloudinary' && env.CLOUDINARY_CLOUD_NAME) {
       return {
         storageKey,
         uploadUrl: `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/image/upload`,
@@ -62,10 +133,6 @@ export class StorageAdapter implements IStorageAdapter {
       deliveryUrl: `${baseApiUrl}/assets/public/${storageKey}`,
       expiresAt,
     };
-  }
-
-  async deleteObject(_storageKey: string): Promise<void> {
-    return Promise.resolve();
   }
 }
 

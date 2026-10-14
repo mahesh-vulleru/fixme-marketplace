@@ -9,12 +9,17 @@ import { PartModel } from '../src/models/Part';
 import { CompatibilityRecordModel } from '../src/models/CompatibilityRecord';
 import { ListingModel } from '../src/models/Listing';
 import { AssetModel } from '../src/models/Asset';
+import { UserModel } from '../src/models/User';
+import { signSessionToken } from '../src/permissions/rbac';
 import { seedCatalogueData } from '../src/seed/seedData';
 
 describe('Phase 2 — Catalogue, Structured Compatibility & Image Storage', () => {
   const app = createApp();
 
+  const originalStorageProvider = process.env.STORAGE_PROVIDER;
+
   beforeAll(async () => {
+    process.env.STORAGE_PROVIDER = 'local';
     const uri = process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/fixme_test';
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(uri);
@@ -34,6 +39,11 @@ describe('Phase 2 — Catalogue, Structured Compatibility & Image Storage', () =
   });
 
   afterAll(async () => {
+    if (originalStorageProvider !== undefined) {
+      process.env.STORAGE_PROVIDER = originalStorageProvider;
+    } else {
+      delete process.env.STORAGE_PROVIDER;
+    }
     await mongoose.connection.close();
   });
 
@@ -156,6 +166,76 @@ describe('Phase 2 — Catalogue, Structured Compatibility & Image Storage', () =
         sizeBytes: 15 * 1024 * 1024,
       });
     expect(oversizedRes.status).toBe(400);
+  });
+
+  it('implements local file storage, accepts binary PUT /upload-put, serves public assets, and deletes safely', async () => {
+    const user = await UserModel.create({
+      email: 'storage_owner@fixme.com',
+      fullName: 'Storage Owner',
+      passwordHash: 'dummy',
+      role: 'seller',
+      isActive: true,
+    });
+    const token = signSessionToken({
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      fullName: user.fullName,
+    });
+
+    // 1. Create upload intent
+    const fileBytes = Buffer.from('FixMe-Sample-Image-Data-1234567890');
+    const intentRes = await request(app)
+      .post('/api/v1/assets/upload-intent')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        assetType: 'product_photo',
+        mimeType: 'image/png',
+        sizeBytes: fileBytes.length,
+      });
+
+    expect(intentRes.status).toBe(201);
+    const assetId = intentRes.body.data.asset._id;
+    const storageKey = intentRes.body.data.asset.storageKey;
+    const uploadUrl = intentRes.body.data.uploadUrl;
+    expect(uploadUrl).toContain('/api/v1/assets/upload-put');
+
+    // 2. Extract path & query parameters from uploadUrl to call via supertest
+    const urlObj = new URL(uploadUrl);
+    const relativePutPath = `${urlObj.pathname}${urlObj.search}`;
+
+    // 3. Upload binary file via PUT /upload-put
+    const putRes = await request(app)
+      .put(relativePutPath)
+      .set('Content-Type', 'image/png')
+      .send(fileBytes);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.success).toBe(true);
+
+    // 4. Complete upload
+    const completeRes = await request(app).post(`/api/v1/assets/${assetId}/complete`);
+    expect(completeRes.status).toBe(200);
+
+    // 5. Serve public asset
+    const serveRes = await request(app).get(`/api/v1/assets/public/${storageKey}`);
+    expect(serveRes.status).toBe(200);
+    expect(serveRes.headers['content-type']).toContain('image/png');
+    expect(serveRes.body).toEqual(fileBytes);
+
+    // 6. Path traversal attempt is blocked
+    const traversalRes = await request(app).get('/api/v1/assets/public/..%2F..%2Fetc%2Fpasswd');
+    expect([400, 404]).toContain(traversalRes.status);
+
+    // 7. Delete asset (authenticated as owner)
+    const deleteRes = await request(app)
+      .delete(`/api/v1/assets/${assetId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(deleteRes.status).toBe(200);
+
+    // 8. Subsequent GET returns 404
+    const notFoundRes = await request(app).get(`/api/v1/assets/public/${storageKey}`);
+    expect(notFoundRes.status).toBe(404);
   });
 });
 

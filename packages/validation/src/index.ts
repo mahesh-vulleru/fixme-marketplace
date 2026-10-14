@@ -12,25 +12,92 @@ import {
 // 1. Environment Variable Validation Schemas
 // ============================================================================
 
-export const ServerEnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().int().positive().default(5000),
-  MONGODB_URI: z.string().min(10, 'MONGODB_URI is required and must be a valid MongoDB URI'),
-  CLIENT_URL: z.string().url('CLIENT_URL must be a valid URL'),
-  ADMIN_URL: z.string().url('ADMIN_URL must be a valid URL'),
-  SELLER_URL: z.string().url('SELLER_URL must be a valid URL').default('http://localhost:5175'),
-  SESSION_SECRET: z.string().min(16, 'SESSION_SECRET must be at least 16 characters long'),
-  STORAGE_PROVIDER: z.enum(['cloudinary', 's3', 'local']).default('local'),
-  CLOUDINARY_CLOUD_NAME: z.string().optional(),
-  CLOUDINARY_API_KEY: z.string().optional(),
-  CLOUDINARY_API_SECRET: z.string().optional(),
-  PAYMENT_PROVIDER: z.string().min(2).default('razorpay_sandbox'),
-  PAYMENT_SECRET_KEY: z.string().min(4).default('sandbox_secret_key'),
-  PAYMENT_WEBHOOK_SECRET: z.string().min(4).default('sandbox_webhook_secret'),
-  EMAIL_PROVIDER_API_KEY: z.string().min(4).default('sandbox_email_key'),
-  ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
-  ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
-});
+export const ServerEnvSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
+    PORT: z.coerce.number().int().positive().default(5000),
+    MONGODB_URI: z.string().min(10, 'MONGODB_URI is required and must be a valid MongoDB URI'),
+    CLIENT_URL: z.string().url('CLIENT_URL must be a valid URL'),
+    ADMIN_URL: z.string().url('ADMIN_URL must be a valid URL'),
+    SELLER_URL: z.string().url('SELLER_URL must be a valid URL').default('http://localhost:5175'),
+    SESSION_SECRET: z.string().min(16, 'SESSION_SECRET must be at least 16 characters long'),
+    STORAGE_PROVIDER: z.enum(['cloudinary', 's3', 'local']).default('local'),
+    CLOUDINARY_CLOUD_NAME: z.string().optional(),
+    CLOUDINARY_API_KEY: z.string().optional(),
+    CLOUDINARY_API_SECRET: z.string().optional(),
+    PAYMENT_PROVIDER: z.string().min(2).default('razorpay_sandbox'),
+    PAYMENT_SECRET_KEY: z.string().min(4).default('sandbox_secret_key'),
+    PAYMENT_WEBHOOK_SECRET: z.string().min(4).default('sandbox_webhook_secret'),
+    EMAIL_PROVIDER_API_KEY: z.string().min(4).default('sandbox_email_key'),
+    ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional().or(z.literal('')),
+    ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8, 'ADMIN_BOOTSTRAP_PASSWORD must be at least 8 characters long').optional().or(z.literal('')),
+    DNS_SERVERS: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasEmail = Boolean(data.ADMIN_BOOTSTRAP_EMAIL && data.ADMIN_BOOTSTRAP_EMAIL.trim());
+    const hasPassword = Boolean(data.ADMIN_BOOTSTRAP_PASSWORD && data.ADMIN_BOOTSTRAP_PASSWORD.trim());
+
+    if (hasEmail && !hasPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ADMIN_BOOTSTRAP_PASSWORD'],
+        message: 'ADMIN_BOOTSTRAP_PASSWORD is required when ADMIN_BOOTSTRAP_EMAIL is configured',
+      });
+    }
+
+    if (hasPassword && !hasEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ADMIN_BOOTSTRAP_EMAIL'],
+        message: 'ADMIN_BOOTSTRAP_EMAIL is required when ADMIN_BOOTSTRAP_PASSWORD is configured',
+      });
+    }
+
+    if (data.NODE_ENV === 'production') {
+      if (data.SESSION_SECRET.length < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SESSION_SECRET'],
+          message: 'SESSION_SECRET must be at least 32 characters in production',
+        });
+      }
+      if (
+        data.SESSION_SECRET === 'replace_with_a_secure_random_secret' ||
+        data.SESSION_SECRET === 'replace_with_a_secure_random_secret_at_least_32_chars' ||
+        data.SESSION_SECRET.includes('change-me')
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SESSION_SECRET'],
+          message: 'SESSION_SECRET must not use a default placeholder in production',
+        });
+      }
+
+      if (data.STORAGE_PROVIDER === 'cloudinary') {
+        if (!data.CLOUDINARY_CLOUD_NAME || data.CLOUDINARY_CLOUD_NAME.includes('your_')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['CLOUDINARY_CLOUD_NAME'],
+            message: 'CLOUDINARY_CLOUD_NAME is required when STORAGE_PROVIDER is cloudinary',
+          });
+        }
+        if (!data.CLOUDINARY_API_KEY || data.CLOUDINARY_API_KEY.includes('your_')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['CLOUDINARY_API_KEY'],
+            message: 'CLOUDINARY_API_KEY is required when STORAGE_PROVIDER is cloudinary',
+          });
+        }
+        if (!data.CLOUDINARY_API_SECRET || data.CLOUDINARY_API_SECRET.includes('your_')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['CLOUDINARY_API_SECRET'],
+            message: 'CLOUDINARY_API_SECRET is required when STORAGE_PROVIDER is cloudinary',
+          });
+        }
+      }
+    }
+  });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;
 

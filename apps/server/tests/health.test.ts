@@ -23,6 +23,7 @@ describe('Phase 1 — Foundation: Environment Validation & Health Check', () => 
     expect(parsed.PORT).toBe(5000);
     expect(parsed.CLIENT_URL).toBe('http://localhost:5173');
     expect(parsed.ADMIN_URL).toBe('http://localhost:5174');
+    expect(parsed.SELLER_URL).toBe('http://localhost:5175');
   });
 
   it('fails startup clearly when required environment variables are missing', () => {
@@ -32,6 +33,37 @@ describe('Phase 1 — Foundation: Environment Validation & Health Check', () => 
 
     expect(() => validateServerEnv(incompleteEnv)).toThrow(
       /Invalid or missing environment variables/
+    );
+  });
+
+  it('fails when ADMIN_BOOTSTRAP_EMAIL is configured without ADMIN_BOOTSTRAP_PASSWORD', () => {
+    const invalidBootstrapEnv = {
+      ...validEnv,
+      ADMIN_BOOTSTRAP_EMAIL: 'admin@fixme.com',
+    };
+    expect(() => validateServerEnv(invalidBootstrapEnv)).toThrow(
+      /ADMIN_BOOTSTRAP_PASSWORD is required when ADMIN_BOOTSTRAP_EMAIL is configured/
+    );
+  });
+
+  it('enforces stricter production security rules for secrets and storage providers', () => {
+    const prodWeakSecretEnv = {
+      ...validEnv,
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'short-secret-under-32-chars',
+    };
+    expect(() => validateServerEnv(prodWeakSecretEnv)).toThrow(
+      /SESSION_SECRET must be at least 32 characters in production/
+    );
+
+    const prodCloudinaryMissingEnv = {
+      ...validEnv,
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'production-secret-must-be-at-least-32-characters-long',
+      STORAGE_PROVIDER: 'cloudinary',
+    };
+    expect(() => validateServerEnv(prodCloudinaryMissingEnv)).toThrow(
+      /CLOUDINARY_CLOUD_NAME is required when STORAGE_PROVIDER is cloudinary/
     );
   });
 

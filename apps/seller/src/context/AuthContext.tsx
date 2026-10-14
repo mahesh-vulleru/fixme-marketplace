@@ -57,9 +57,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     refreshSession();
 
-    // Re-synchronize verification state and credentials when tab gains focus
+    // Re-synchronize verification state and credentials when tab gains focus (throttled to at most once per 5 seconds)
+    let lastFocusRefresh = 0;
     const handleFocus = () => {
-      refreshSession();
+      const now = Date.now();
+      if (now - lastFocusRefresh > 5000) {
+        lastFocusRefresh = now;
+        refreshSession();
+      }
     };
 
     window.addEventListener('focus', handleFocus);

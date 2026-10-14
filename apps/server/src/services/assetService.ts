@@ -141,4 +141,32 @@ export class AssetService {
       expiresAt,
     };
   }
+
+  static async deleteAsset(
+    assetId: string,
+    requesterUserId?: string,
+    requesterRole?: UserRole
+  ): Promise<void> {
+    const asset = await AssetModel.findById(assetId);
+    if (!asset) {
+      throw new AppError(404, 'ASSET_NOT_FOUND', 'Asset record not found');
+    }
+
+    const isAuthorizedStaff =
+      requesterRole === 'support_staff' ||
+      requesterRole === 'administrator' ||
+      requesterRole === 'super_administrator';
+    const isOwner = requesterUserId && asset.ownerUserId === requesterUserId;
+
+    if (!isAuthorizedStaff && !isOwner) {
+      throw new AppError(
+        403,
+        'OWNERSHIP_VIOLATION',
+        'You do not have permission to delete this asset'
+      );
+    }
+
+    await storageAdapter.deleteObject(asset.storageKey);
+    await AssetModel.findByIdAndDelete(assetId);
+  }
 }

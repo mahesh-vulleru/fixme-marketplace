@@ -9,8 +9,8 @@
 
 ```
 Test Files  8 passed (8)
-     Tests  34 passed (34)
-  Duration  8.55s
+     Tests  37 passed (37)
+  Duration  17.30s
 ```
 
 All 8 automated integration test suites executed with **0 errors, 0 failures, and 0 skipped tests**.
@@ -63,8 +63,13 @@ All 8 automated integration test suites executed with **0 errors, 0 failures, an
   - Admin listings query with `status=all` returns all items.
 
 ### 5. `apps/server/tests/catalogue.test.ts`
-- **Scope:** Catalogue seeding, category/brand lookup, structured device compatibility verification, integer-paise listing validation, and upload-intent pattern.
-- **Status:** **PASS** (4/4 tests, 3.6s)
+- **Scope:** Catalogue seeding, category/brand lookup, structured device compatibility verification, integer-paise listing validation, upload-intent pattern, and local file storage PUT/GET/DELETE operations.
+- **Status:** **PASS** (5/5 tests, 2.4s)
+- **Key Assertions:**
+  - Complete local binary file upload via `PUT /api/v1/assets/upload-put`.
+  - Public asset delivery via `GET /api/v1/assets/public/*` with correct `Content-Type`.
+  - Directory traversal blocking (`/public/../../etc/passwd` returns 400/404).
+  - Authenticated deletion via `DELETE /api/v1/assets/:id` unlinks file from disk and deletes MongoDB record.
 
 ### 6. `apps/server/tests/commerce.test.ts`
 - **Scope:** Shopping cart operations, atomic stock reservation, order checkout, Razorpay order generation, and webhook signature verification.
@@ -75,8 +80,12 @@ All 8 automated integration test suites executed with **0 errors, 0 failures, an
 - **Status:** **PASS** (3/3 tests, 334ms)
 
 ### 8. `apps/server/tests/health.test.ts`
-- **Scope:** Environment validation, server health endpoint, and structured 404 responses.
-- **Status:** **PASS** (4/4 tests, 47ms)
+- **Scope:** Environment validation, server health endpoint, structured 404 responses, and configuration rules:
+  - Validates `SELLER_URL` along with `CLIENT_URL` and `ADMIN_URL`.
+  - Enforces co-dependency of `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_PASSWORD`.
+  - Enforces production `SESSION_SECRET` length (>= 32 chars) and placeholder rejection.
+  - Enforces Cloudinary credentials when `STORAGE_PROVIDER=cloudinary` in production.
+- **Status:** **PASS** (6/6 tests, 52ms)
 
 ---
 

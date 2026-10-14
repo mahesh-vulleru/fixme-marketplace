@@ -1,3 +1,4 @@
+import './config/dns';
 import { getEnv } from './config/env';
 import { connectDatabase } from './config/db';
 import { createApp } from './app';
@@ -22,6 +23,7 @@ async function bootstrap(): Promise<void> {
       environment: env.NODE_ENV,
       clientUrl: env.CLIENT_URL,
       adminUrl: env.ADMIN_URL,
+      sellerUrl: env.SELLER_URL,
     });
   });
 

@@ -106,13 +106,18 @@ export async function apiRequest<T>(
   const method = (options.method || 'GET').toUpperCase();
   const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
   const isLogout = path.includes('/auth/logout');
+  const isPublicAuth =
+    path.includes('/auth/login') ||
+    path.includes('/auth/register') ||
+    path.includes('/auth/forgot-password') ||
+    path.includes('/auth/reset-password');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  if (isMutating && !isLogout) {
+  if (isMutating && !isLogout && !isPublicAuth) {
     let token = getCsrfToken();
     if (!token) {
       token = await fetchCsrfToken();
@@ -141,6 +146,7 @@ export async function apiRequest<T>(
     response.status === 403 &&
     isMutating &&
     !isLogout &&
+    !isPublicAuth &&
     (payload as ApiErrorResponse)?.error?.code === 'CSRF_VALIDATION_FAILED'
   ) {
     setCsrfToken(null);

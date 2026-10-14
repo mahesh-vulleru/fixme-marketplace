@@ -9,13 +9,14 @@ import { PartModel } from '../models/Part';
 import { CompatibilityRecordModel } from '../models/CompatibilityRecord';
 import { ListingModel } from '../models/Listing';
 import { logger } from '../middleware/logger';
+import { env } from '../config/env';
 
 export async function bootstrapAdminUser(): Promise<{
   status: 'created' | 'updated' | 'conflict' | 'skipped';
   email?: string;
 }> {
-  const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL?.trim().toLowerCase();
-  const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+  const bootstrapEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL ?? env.ADMIN_BOOTSTRAP_EMAIL)?.trim().toLowerCase();
+  const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD ?? env.ADMIN_BOOTSTRAP_PASSWORD;
 
   if (!bootstrapEmail || !bootstrapPassword) {
     return { status: 'skipped' };

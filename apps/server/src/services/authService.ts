@@ -121,20 +121,7 @@ export class AuthService {
       );
     }
 
-    let passwordValid = await bcrypt.compare(input.password, user.passwordHash);
-    if (!passwordValid && env.NODE_ENV !== 'production') {
-      const devPasswords = ['StrongPassword123!', 'Mahesh@238', process.env.ADMIN_BOOTSTRAP_PASSWORD].filter(Boolean);
-      const isKnownDevAccount = [
-        'admin@fixme.com',
-        'vendor@fixme.com',
-        'customer@fixme.com',
-        (process.env.ADMIN_BOOTSTRAP_EMAIL || '').toLowerCase(),
-      ].includes(normalizedEmail);
-
-      if (isKnownDevAccount && devPasswords.includes(input.password)) {
-        passwordValid = true;
-      }
-    }
+    const passwordValid = await bcrypt.compare(input.password, user.passwordHash);
 
     if (!passwordValid) {
       user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;

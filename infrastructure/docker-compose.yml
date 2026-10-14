@@ -22,6 +22,7 @@ services:
       MONGODB_URI: mongodb://mongodb:27017/fixme
       CLIENT_URL: http://localhost:5173
       ADMIN_URL: http://localhost:5174
+      SELLER_URL: http://localhost:5175
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production-32-chars-minimum}
       STORAGE_PROVIDER: local
       PAYMENT_PROVIDER: razorpay_sandbox

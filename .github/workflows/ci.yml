@@ -20,13 +20,13 @@ jobs:
       MONGODB_URI: mongodb://127.0.0.1:27017/fixme_test
       CLIENT_URL: http://localhost:5173
       ADMIN_URL: http://localhost:5174
-      JWT_ACCESS_SECRET: ci-access-secret-minimum-32-characters-long-1234
-      JWT_REFRESH_SECRET: ci-refresh-secret-minimum-32-characters-long-1234
-      COOKIE_SECRET: ci-cookie-secret-minimum-32-characters-long-1234
-      CSRF_SECRET: ci-csrf-secret-minimum-16-chars
+      SELLER_URL: http://localhost:5175
+      SESSION_SECRET: ci-session-secret-minimum-32-characters-long-1234
       STORAGE_PROVIDER: local
-      PAYMENT_PROVIDER: mock_signed
+      PAYMENT_PROVIDER: razorpay_sandbox
+      PAYMENT_SECRET_KEY: ci-sandbox-secret-key-16-chars
       PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-16-chars
+      EMAIL_PROVIDER_API_KEY: sandbox_email_key
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

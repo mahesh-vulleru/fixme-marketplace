@@ -1,8 +1,12 @@
 import rateLimit from 'express-rate-limit';
 
+const isTestEnv = process.env.NODE_ENV === 'test';
+const isProd = process.env.NODE_ENV === 'production';
+
 export const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 300,
+  limit: isTestEnv ? 10000 : 300,
+  skip: () => isTestEnv,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: {
@@ -16,7 +20,8 @@ export const apiRateLimiter = rateLimit({
 
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 25,
+  limit: isTestEnv ? 10000 : isProd ? 25 : 100,
+  skip: () => isTestEnv,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: {
