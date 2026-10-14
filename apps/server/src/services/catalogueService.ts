@@ -373,9 +373,9 @@ export class CatalogueService {
     if (params.partId) filter.partId = params.partId;
     if (params.sellerId) filter.sellerId = params.sellerId;
     if (params.condition) filter.condition = params.condition;
-    if (params.status) {
+    if (params.status && params.status !== 'all') {
       filter.status = params.status;
-    } else {
+    } else if (!params.status) {
       filter.status = 'active';
     }
 

@@ -56,6 +56,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refreshSession();
+
+    // Re-synchronize verification state and credentials when tab gains focus
+    const handleFocus = () => {
+      refreshSession();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [refreshSession]);
 
   const login = async (email: string, password: string): Promise<SellerPortalUser> => {

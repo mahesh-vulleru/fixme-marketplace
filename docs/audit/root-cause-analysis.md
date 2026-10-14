@@ -203,3 +203,112 @@ This document records the confirmed defects identified during the audit, the rep
 - **Regression Test:** Verified in `tests/auth.test.ts` ("updates seller profile via PATCH /api/v1/seller/profile and allows resubmitting application via POST /api/v1/seller/apply without 409 conflict").
 - **Verification Result:** PASS.
 
+---
+
+### Issue 9: Missing or Invalid X-CSRF-Token on Seller KYC Submission & State Mutations
+
+- **Issue ID:** DEF-009
+- **Severity:** High
+- **Affected Feature:** Seller KYC document upload, profile updates, and listing creation mutations from the browser.
+- **Steps to Reproduce:**
+  1. Sign in as a seller (`seller123@gmail.com`).
+  2. Open KYC verification at `http://localhost:5175/verification`.
+  3. Submit KYC verification documents or save profile.
+- **Expected Behavior:** Request carries valid `X-CSRF-Token` header matching HMAC of user ID and is accepted by backend.
+- **Actual Behavior:** Request failed with HTTP 403: `Missing or invalid X-CSRF-Token header for cookie-authenticated mutation`.
+- **Evidence:** Browser console displayed `403 (Forbidden)` on `POST /api/v1/seller/apply` and `POST /api/v1/assets/upload-intent`.
+- **Root Cause:**
+  1. `apiClient.ts` only attached `X-CSRF-Token` if the token was already cached in `sessionStorage` or local variable.
+  2. If the user navigated directly or clicked submit before `refreshSession()` completed, the header was omitted entirely.
+  3. No automatic retry existed if a 403 `CSRF_VALIDATION_FAILED` occurred due to an expired or missing token.
+- **Minimal Safe Fix:**
+  1. Updated `apiClient.ts` across `apps/seller`, `apps/client`, and `apps/admin` to implement `fetchCsrfToken()` with in-flight request deduplication.
+  2. In Axios request interceptor: proactively check if the mutating request (`POST`, `PUT`, `PATCH`, `DELETE`) lacks a cached CSRF token; if missing, fetch it synchronously from `GET /api/v1/auth/csrf-token` before releasing the request.
+  3. In Axios response error interceptor: if a 403 `CSRF_VALIDATION_FAILED` is encountered, immediately clear stale cached tokens, fetch a fresh token from `/auth/csrf-token`, update the request header, and retry the request once.
+- **Regression Test:** `tests/auth.test.ts` ("enforces CSRF tokens on cookie mutations, allows auto-retrieval via /auth/csrf-token, and accepts Bearer requests without CSRF header").
+- **Verification Result:** PASS.
+- **Remaining Risk:** None. The CSRF defense retains full cryptographic HMAC validation on the backend without bypassing middleware.
+
+---
+
+### Issue 10: KYC & Admin Status Inconsistency Between DB and Seller Hub
+
+- **Issue ID:** DEF-010
+- **Severity:** High
+- **Affected Feature:** Seller portal dashboard, verification banner, and real-time status reflection after admin moderation.
+- **Steps to Reproduce:**
+  1. Seller registers or applies for verification (`status: 'pending'`).
+  2. Admin approves seller in `http://localhost:5174/admin/moderation` (`PATCH /api/v1/admin/sellers/:id/review` -> `status: 'approved'`).
+  3. Switch back to Seller Hub tab (`http://localhost:5175`).
+- **Expected Behavior:** Seller Hub reflects verified merchant status, removes restrictive KYC warnings, and unlocks seller operations.
+- **Actual Behavior:** Seller Hub remained stuck displaying `Verification Pending`, requiring the seller to manually log out and log back in.
+- **Evidence:** User database record had `sellerProfile.status: 'approved'`, but Seller Hub banner continued showing "Verification Pending".
+- **Root Cause:** `AuthContext.tsx` in `apps/seller` only fetched user profile once upon component mount (`restoreSession()`). Switching browser tabs or window focus did not trigger session re-validation.
+- **Minimal Safe Fix:**
+  1. Added window `focus` event listener in `apps/seller/src/context/AuthContext.tsx` that calls `refreshSession()` when the user returns to the Seller Hub tab.
+  2. Added manual "Re-check Status" button with a spinning refresh indicator in both `SellerDashboardPage.tsx` and `SellerVerificationPage.tsx`.
+  3. Displayed admin review notes (`sellerProfile.reviewNotes`) prominently in `SellerVerificationPage.tsx` so sellers know why an application was approved or rejected.
+- **Regression Test:** `tests/auth.test.ts` ("synchronizes seller verification status between admin review and seller /auth/me profile immediately").
+- **Verification Result:** PASS.
+- **Remaining Risk:** None.
+
+---
+
+### Issue 11: Seller Wanted Parts Navigation Failure & Crash on Missing Fields
+
+- **Issue ID:** DEF-011
+- **Severity:** High
+- **Affected Feature:** Seller Wanted Parts hub (`http://localhost:5175/wanted`), viewing customer requests, and bidding.
+- **Steps to Reproduce:**
+  1. Have wanted-part requests in MongoDB where fields like `brand` or delivery details are null or omitted.
+  2. Log in as a seller and navigate to `/wanted`.
+- **Expected Behavior:** Page loads reliably; shows open buyer requests; clarifies offer eligibility.
+- **Actual Behavior:**
+  1. Component crashed with uncaught `TypeError: Cannot read properties of undefined (reading 'toLowerCase')` on `req.brand.toLowerCase()`.
+  2. `openEditOfferModal` threw `TypeError` trying to access `offer.leadTimeDays` (actual field is `estimatedDeliveryDays`).
+  3. If the network request failed, the page showed empty cards with no indication of error or retry action.
+- **Minimal Safe Fix:**
+  1. Added defensive optional chaining and fallbacks: `(req.brand || '').toLowerCase()`, `req.componentType || 'Spare Part'`, `req.deliveryCity || 'India'`.
+  2. Corrected offer lead time property mapping: `offer.estimatedDeliveryDays ?? (offer as any).leadTimeDays ?? 3`.
+  3. Added explicit Error State banner with a "Retry Loading Requests" button in `SellerWantedPage.tsx`.
+  4. Added informational notice explaining that unverified sellers can freely browse open requests to assess buyer demand, while submitting binding offers is reserved for approved sellers.
+- **Regression Test:** `tests/auth.test.ts` ("allows pending sellers to view wanted requests but restricts offer submission to approved sellers").
+- **Verification Result:** PASS.
+- **Remaining Risk:** None.
+
+---
+
+### Issue 12: Admin Listings Moderation Filter Defaulting to `active` Hiding `pending_review` Listings
+
+- **Issue ID:** DEF-012
+- **Severity:** Medium
+- **Affected Feature:** Admin Moderation Page (`http://localhost:5174/admin/moderation`), catalog listing moderation queue.
+- **Steps to Reproduce:**
+  1. A seller creates a new part listing (default status: `pending_review`).
+  2. Admin visits `http://localhost:5174/admin/moderation` and looks under "Spare Part Listings".
+- **Expected Behavior:** All listings awaiting review or all listings overall are visible to administrators.
+- **Actual Behavior:** Listings list showed 0 items.
+- **Evidence:** `CatalogueService.listListings` contained:
+  ```ts
+  if (params.status) {
+    filter.status = params.status;
+  } else {
+    filter.status = 'active';
+  }
+  ```
+  When the admin filter was set to "All Statuses", `status` was undefined, defaulting to `'active'`, thus hiding all `pending_review` items.
+- **Minimal Safe Fix:**
+  1. Updated `CatalogueService.listListings` so `params.status === 'all'` explicitly clears the status filter:
+     ```ts
+     if (params.status && params.status !== 'all') {
+       filter.status = params.status;
+     } else if (!params.status) {
+       filter.status = 'active';
+     }
+     ```
+  2. Updated `AdminModerationPage.tsx` to request `?status=all&limit=50` when "All Statuses" is selected.
+  3. Added clarification on the admin UI distinguishing seller catalog listings from buyer wanted requests.
+- **Regression Test:** `tests/auth.test.ts` ("supports querying catalog listings with status=all, specific status filter, and default active filter").
+- **Verification Result:** PASS.
+- **Remaining Risk:** None.
+

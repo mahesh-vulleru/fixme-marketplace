@@ -14,7 +14,7 @@ export const AdminModerationPage: React.FC = () => {
     setLoading(true);
     try {
       const sellerQuery = sellerStatusFilter ? `?status=${sellerStatusFilter}` : '';
-      const listingQuery = listingStatusFilter ? `?status=${listingStatusFilter}&limit=50` : '?limit=50';
+      const listingQuery = listingStatusFilter ? `?status=${listingStatusFilter}&limit=50` : '?status=all&limit=50';
       const [sellersData, listingsData] = await Promise.all([
         apiRequest<any[]>(`/admin/sellers${sellerQuery}`).catch(() => []),
         apiRequest<any[]>(`/listings${listingQuery}`).catch(() => [])
@@ -181,7 +181,7 @@ export const AdminModerationPage: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div>
             <h3 className="font-bold text-slate-900">Marketplace Listings Moderation</h3>
-            <p className="text-xs text-slate-500">Monitor seller listings for quality, compliance, and stock legitimacy</p>
+            <p className="text-xs text-slate-500">Monitor seller catalog listings for quality, compliance, and stock legitimacy (Customer Wanted Requests are managed separately).</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-600">Filter:</span>

@@ -9,8 +9,8 @@
 
 ```
 Test Files  8 passed (8)
-     Tests  30 passed (30)
-  Duration  16.69s
+     Tests  34 passed (34)
+  Duration  8.55s
 ```
 
 All 8 automated integration test suites executed with **0 errors, 0 failures, and 0 skipped tests**.
@@ -42,8 +42,12 @@ All 8 automated integration test suites executed with **0 errors, 0 failures, an
 - **Status:** **PASS** (1/1 tests, 4.1s)
 
 ### 4. `apps/server/tests/auth.test.ts`
-- **Scope:** Public customer registration, admin role injection prevention, login, session cookies, rate-limiting, password recovery, dedicated CSRF token endpoint, CSRF exemption on cookie logout, and seller profile update/resubmission without 409 conflict.
-- **Status:** **PASS** (6/6 tests, 3.2s)
+- **Scope:** Public customer registration, admin role injection prevention, login, session cookies, rate-limiting, password recovery, dedicated CSRF token endpoint, CSRF exemption on cookie logout, seller profile update/resubmission without 409 conflict, and 4 new regression tests:
+  1. **CSRF Enforcement & Auto-Acquisition:** Missing or invalid `X-CSRF-Token` on cookie mutations returns `403 CSRF_VALIDATION_FAILED`; proactive fetch via `GET /auth/csrf-token` yields valid token; cookie mutation succeeds with token; Bearer mutations succeed without token.
+  2. **Seller KYC Status Immediate Sync:** Admin moderation transitions (`pending` -> `approved` -> `suspended`) immediately reflect in seller session `/auth/me` without requiring re-login.
+  3. **Wanted Parts Seller Role Gating:** Pending sellers can browse `/wanted-requests` but cannot submit offers (`403 SELLER_NOT_APPROVED`); approved sellers can submit valid offers (`201 Created`).
+  4. **Listing Moderation Filters:** `status=all` returns all listings (including `pending_review` and `suspended`); explicit status queries return only matching items; default query returns `active` only.
+- **Status:** **PASS** (10/10 tests, 4.0s)
 - **Key Assertions:**
   - Registration succeeds with role `customer`, sets `fixme_session` cookie.
   - Public registration rejects elevated roles (`administrator`).
@@ -53,6 +57,10 @@ All 8 automated integration test suites executed with **0 errors, 0 failures, an
   - `PATCH /api/v1/seller/profile` updates store attributes.
   - `POST /api/v1/seller/apply` updates existing pending application without `409 SELLER_PROFILE_EXISTS` conflict.
   - Admin disputes list populates without `strictPopulate` error.
+  - Mutating requests without CSRF token are blocked with 403.
+  - Moderated seller approval synchronizes immediately to `/auth/me`.
+  - Unapproved seller offers on wanted requests are rejected.
+  - Admin listings query with `status=all` returns all items.
 
 ### 5. `apps/server/tests/catalogue.test.ts`
 - **Scope:** Catalogue seeding, category/brand lookup, structured device compatibility verification, integer-paise listing validation, and upload-intent pattern.

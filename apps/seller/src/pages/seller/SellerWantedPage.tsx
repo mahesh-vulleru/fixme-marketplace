@@ -178,7 +178,7 @@ export const SellerWantedPage: React.FC = () => {
       if (req.status !== 'open') return false;
 
       if (categoryFilter && req.category !== categoryFilter) return false;
-      if (brandFilter && req.brand.toLowerCase() !== brandFilter.toLowerCase()) return false;
+      if (brandFilter && !(req.brand || '').toLowerCase().includes(brandFilter.trim().toLowerCase())) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -228,13 +228,13 @@ export const SellerWantedPage: React.FC = () => {
     setEditingOfferData({
       requestId: req._id,
       offerId: offer._id,
-      requestSummary: `${req.componentType} for ${req.brand} ${req.deviceModel}`,
+      requestSummary: `${req.componentType || 'Component'} for ${req.brand || 'Device'} ${req.deviceModel || ''}`.trim(),
     });
     setOfferForm({
       priceRupees: String(offer.offeredPricePaise / 100),
-      availableQuantity: offer.availableQuantity,
-      condition: offer.condition,
-      leadTimeDays: offer.leadTimeDays,
+      availableQuantity: offer.availableQuantity || 1,
+      condition: offer.condition || 'new',
+      leadTimeDays: offer.leadTimeDays ?? (offer as any).estimatedDeliveryDays ?? 2,
       warrantyDays: offer.warrantyDays ?? 0,
       shippingCostRupees: offer.shippingCostPaise ? String(offer.shippingCostPaise / 100) : '0',
       compatibilityEvidence: offer.compatibilityEvidence || '',
@@ -492,6 +492,19 @@ export const SellerWantedPage: React.FC = () => {
               <Clock className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-600" />
               <p className="text-sm">Loading active customer requests...</p>
             </div>
+          ) : error ? (
+            <div className="text-center py-10 text-red-600 bg-red-50/50 rounded-xl border border-red-200">
+              <AlertCircle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+              <p className="text-base font-bold text-red-800">Failed to load wanted-part requests</p>
+              <p className="text-xs text-red-600 mt-1 max-w-md mx-auto">{error}</p>
+              <button
+                type="button"
+                onClick={loadRequests}
+                className="mt-3 px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition cursor-pointer"
+              >
+                Retry Loading Requests
+              </button>
+            </div>
           ) : filteredOpenRequests.length === 0 ? (
             <div className="text-center py-10 text-slate-500">
               <Tag className="w-10 h-10 mx-auto text-slate-300 mb-2" />
@@ -510,33 +523,33 @@ export const SellerWantedPage: React.FC = () => {
                     <div className="space-y-2 max-w-2xl">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 capitalize">
-                          {req.category?.replace('_', ' ')}
+                          {(req.category || 'general').replace('_', ' ')}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">
-                          Condition: {req.requiredCondition}
+                          Condition: {req.requiredCondition || 'any'}
                         </span>
                         <span className="text-xs text-slate-400">
-                          Qty: <strong>{req.quantity}</strong>
+                          Qty: <strong>{req.quantity || 1}</strong>
                         </span>
                       </div>
 
                       <h3 className="text-base font-bold text-slate-900">
-                        {req.componentType}
+                        {req.componentType || 'Spare Part'}
                       </h3>
 
                       <p className="text-xs text-slate-600 font-medium">
-                        Device: <strong className="text-slate-800">{req.brand} {req.deviceModel}</strong>
+                        Device: <strong className="text-slate-800">{req.brand || 'Generic'} {req.deviceModel || ''}</strong>
                         {req.partNumber && <span> • Part #: <span className="font-mono">{req.partNumber}</span></span>}
                       </p>
 
                       <p className="text-xs text-slate-600 line-clamp-2">
-                        {req.description}
+                        {req.description || 'Customer requested matching replacement component.'}
                       </p>
 
-                      <div className="flex items-center gap-4 text-xs text-slate-500 pt-1">
+                      <div className="flex items-center gap-4 text-xs text-slate-500 pt-1 flex-wrap">
                         <span className="flex items-center gap-1">
                           <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                          {req.deliveryCity} (PIN: {req.deliveryPostalCode})
+                          {req.deliveryCity || 'National'}{req.deliveryPostalCode ? ` (PIN: ${req.deliveryPostalCode})` : ''}
                         </span>
                         <span>
                           Target Budget:{' '}
@@ -629,17 +642,17 @@ export const SellerWantedPage: React.FC = () => {
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-bold text-slate-900 text-sm">
-                            {req.componentType}
+                            {req.componentType || 'Spare Part'}
                           </h3>
                           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">
-                            {req.brand} {req.deviceModel}
+                            {req.brand || 'Generic'} {req.deviceModel || ''}
                           </span>
                           <span className="text-xs font-semibold px-2 py-0.5 rounded-full capitalize">
                             Req Status: {req.status}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Delivery: {req.deliveryCity} (PIN: {req.deliveryPostalCode}) • Target: {req.maxBudgetPaise ? formatRupeesFromPaise(req.maxBudgetPaise) : 'Flexible'}
+                          Delivery: {req.deliveryCity || 'National'}{req.deliveryPostalCode ? ` (PIN: ${req.deliveryPostalCode})` : ''} • Target: {req.maxBudgetPaise ? formatRupeesFromPaise(req.maxBudgetPaise) : 'Flexible'}
                         </p>
                       </div>
 

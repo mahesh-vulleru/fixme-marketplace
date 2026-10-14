@@ -10,7 +10,8 @@ import { ListingModel } from '../src/models/Listing';
 import { PartModel } from '../src/models/Part';
 import { CategoryModel } from '../src/models/Category';
 import { BrandModel } from '../src/models/Brand';
-import { signSessionToken } from '../src/permissions/rbac';
+import { WantedRequestModel } from '../src/models/WantedRequest';
+import { signSessionToken, generateCsrfToken, SESSION_COOKIE_NAME } from '../src/permissions/rbac';
 
 describe('Phase 3 — Accounts, RBAC, CSRF Defense & Moderation', () => {
   const app = createApp();
@@ -32,6 +33,7 @@ describe('Phase 3 — Accounts, RBAC, CSRF Defense & Moderation', () => {
       PartModel.deleteMany({}),
       CategoryModel.deleteMany({}),
       BrandModel.deleteMany({}),
+      WantedRequestModel.deleteMany({}),
     ]);
   });
 
@@ -526,6 +528,340 @@ describe('Phase 3 — Accounts, RBAC, CSRF Defense & Moderation', () => {
     expect(patchRes.status).toBe(200);
     expect(patchRes.body.data.storeName).toBe('Final Verified Spares');
     expect(patchRes.body.data.gstin).toBe('29AABCU9603R1ZN');
+  });
+
+  it('enforces CSRF tokens on cookie mutations, allows auto-retrieval via /auth/csrf-token, and accepts Bearer requests without CSRF header', async () => {
+    const user = await UserModel.create({
+      email: 'csrftest@fixme.com',
+      fullName: 'CSRF Tester',
+      passwordHash: 'dummy_hash',
+      role: 'seller',
+      isActive: true,
+    });
+    const sessionToken = signSessionToken({
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      fullName: user.fullName,
+    });
+
+    // 1. Cookie mutation without X-CSRF-Token fails with 403 CSRF_VALIDATION_FAILED
+    const noTokenRes = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set('Cookie', [`${SESSION_COOKIE_NAME}=${sessionToken}`])
+      .send({ fullName: 'Updated Without CSRF' });
+
+    expect(noTokenRes.status).toBe(403);
+    expect(noTokenRes.body.error.code).toBe('CSRF_VALIDATION_FAILED');
+
+    // 2. Cookie mutation with invalid X-CSRF-Token fails with 403 CSRF_VALIDATION_FAILED
+    const badTokenRes = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set('Cookie', [`${SESSION_COOKIE_NAME}=${sessionToken}`])
+      .set('X-CSRF-Token', 'invalid-token-value')
+      .send({ fullName: 'Updated With Bad CSRF' });
+
+    expect(badTokenRes.status).toBe(403);
+    expect(badTokenRes.body.error.code).toBe('CSRF_VALIDATION_FAILED');
+
+    // 3. Proactively fetching fresh CSRF token via GET /api/v1/auth/csrf-token succeeds
+    const csrfFetchRes = await request(app)
+      .get('/api/v1/auth/csrf-token')
+      .set('Cookie', [`${SESSION_COOKIE_NAME}=${sessionToken}`]);
+
+    expect(csrfFetchRes.status).toBe(200);
+    const validToken = csrfFetchRes.body.data.csrfToken;
+    expect(validToken).toBeDefined();
+    expect(typeof validToken).toBe('string');
+
+    // 4. Cookie mutation with valid X-CSRF-Token succeeds
+    const goodCookieRes = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set('Cookie', [`${SESSION_COOKIE_NAME}=${sessionToken}`])
+      .set('X-CSRF-Token', validToken)
+      .send({ fullName: 'Successfully Updated Name' });
+
+    expect(goodCookieRes.status).toBe(200);
+    expect(goodCookieRes.body.data.fullName).toBe('Successfully Updated Name');
+
+    // 5. Bearer token mutation does not require X-CSRF-Token and succeeds
+    const bearerRes = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .send({ fullName: 'Updated Via Bearer' });
+
+    expect(bearerRes.status).toBe(200);
+    expect(bearerRes.body.data.fullName).toBe('Updated Via Bearer');
+  });
+
+  it('synchronizes seller verification status between admin review and seller /auth/me profile immediately', async () => {
+    // 1. Create Admin
+    const admin = await UserModel.create({
+      email: 'lead_admin@fixme.com',
+      fullName: 'Super Administrator',
+      passwordHash: 'dummy_hash',
+      role: 'super_administrator',
+      isActive: true,
+    });
+    const adminToken = signSessionToken({
+      id: admin._id.toString(),
+      email: admin.email,
+      role: admin.role,
+      fullName: admin.fullName,
+    });
+
+    // 2. Create Seller and apply
+    const seller = await UserModel.create({
+      email: 'syncseller@fixme.com',
+      fullName: 'Sync Seller',
+      passwordHash: 'dummy_hash',
+      role: 'seller',
+      isActive: true,
+    });
+    const sellerToken = signSessionToken({
+      id: seller._id.toString(),
+      email: seller.email,
+      role: seller.role,
+      fullName: seller.fullName,
+    });
+
+    const applyRes = await request(app)
+      .post('/api/v1/seller/apply')
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({
+        storeName: 'Sync Tech Spares',
+        businessAddress: '100 Silicon Blvd, Bengaluru',
+        gstin: '29AABCU9603R1Z5',
+      });
+    expect(applyRes.status).toBe(201);
+    const sellerProfileId = applyRes.body.data._id;
+
+    // 3. /auth/me initially reports pending
+    const initialMe = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(initialMe.status).toBe(200);
+    expect(initialMe.body.data.sellerProfile.status).toBe('pending');
+
+    // 4. Admin reviews and approves seller
+    const reviewRes = await request(app)
+      .patch(`/api/v1/admin/sellers/${sellerProfileId}/review`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        status: 'approved',
+        reviewNotes: 'All identity documents verified successfully.',
+      });
+    expect(reviewRes.status).toBe(200);
+    expect(reviewRes.body.data.sellerProfile.status).toBe('approved');
+
+    // 5. Seller calls /auth/me and receives approved status instantly
+    const refreshedMe = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(refreshedMe.status).toBe(200);
+    expect(refreshedMe.body.data.sellerProfile.status).toBe('approved');
+    expect(refreshedMe.body.data.sellerProfile.reviewNotes).toBe('All identity documents verified successfully.');
+
+    // 6. Admin can update status to suspended
+    const suspendRes = await request(app)
+      .patch(`/api/v1/admin/sellers/${sellerProfileId}/review`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        status: 'suspended',
+        reviewNotes: 'Account temporarily suspended pending audit.',
+      });
+    expect(suspendRes.status).toBe(200);
+    expect(suspendRes.body.data.sellerProfile.status).toBe('suspended');
+
+    const suspendedMe = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(suspendedMe.status).toBe(200);
+    expect(suspendedMe.body.data.sellerProfile.status).toBe('suspended');
+    expect(suspendedMe.body.data.sellerProfile.reviewNotes).toBe('Account temporarily suspended pending audit.');
+  });
+
+  it('allows pending sellers to view wanted requests but restricts offer submission to approved sellers', async () => {
+    // 1. Create a customer and submit a wanted part request
+    const customer = await UserModel.create({
+      email: 'buyer1@fixme.com',
+      fullName: 'Device Owner',
+      passwordHash: 'dummy',
+      role: 'customer',
+      isActive: true,
+    });
+    const customerToken = signSessionToken({
+      id: customer._id.toString(),
+      email: customer.email,
+      role: customer.role,
+      fullName: customer.fullName,
+    });
+
+    const createReqRes = await request(app)
+      .post('/api/v1/wanted-requests')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        componentType: 'display',
+        description: 'Need iPhone 13 Pro OLED Display Original screen replacement',
+        deviceModel: 'iPhone 13 Pro',
+        brand: 'Apple',
+        maxBudgetPaise: 850000,
+        deliveryCity: 'Bengaluru',
+        deliveryPostalCode: '560001',
+      });
+    expect(createReqRes.status).toBe(201);
+    const wantedRequestId = createReqRes.body.data._id;
+
+    // 2. Create a pending seller
+    const seller = await UserModel.create({
+      email: 'wanted_seller@fixme.com',
+      fullName: 'Wanted Spares Seller',
+      passwordHash: 'dummy',
+      role: 'seller',
+      isActive: true,
+    });
+    const sellerProfile = await SellerProfileModel.create({
+      userId: seller._id,
+      storeName: 'Wanted Spares Store',
+      storeSlug: 'wanted-spares-store',
+      businessAddress: '77 Market Road, Bengaluru',
+      status: 'pending',
+    });
+    const sellerToken = signSessionToken({
+      id: seller._id.toString(),
+      email: seller.email,
+      role: seller.role,
+      fullName: seller.fullName,
+    });
+
+    // 3. Pending seller can view wanted requests list
+    const listRes = await request(app)
+      .get('/api/v1/wanted-requests')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.data.some((r: any) => r._id === wantedRequestId)).toBe(true);
+
+    // 4. Pending seller attempting to submit offer is rejected with 403 SELLER_NOT_APPROVED
+    const pendingOfferRes = await request(app)
+      .post(`/api/v1/wanted-requests/${wantedRequestId}/offers`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({
+        offeredPricePaise: 820000,
+        condition: 'new',
+        warrantyDays: 90,
+        estimatedDeliveryDays: 3,
+        notes: 'Genuine pull OEM screen in stock',
+      });
+    expect(pendingOfferRes.status).toBe(403);
+    expect(pendingOfferRes.body.error.code).toBe('SELLER_NOT_APPROVED');
+
+    // 5. Approve seller
+    sellerProfile.status = 'approved';
+    await sellerProfile.save();
+
+    // 6. Approved seller can submit offer successfully
+    const approvedOfferRes = await request(app)
+      .post(`/api/v1/wanted-requests/${wantedRequestId}/offers`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({
+        offeredPricePaise: 820000,
+        condition: 'new',
+        warrantyDays: 90,
+        estimatedDeliveryDays: 3,
+        notes: 'Genuine pull OEM screen in stock',
+      });
+    expect(approvedOfferRes.status).toBe(201);
+    expect(approvedOfferRes.body.data.offers).toHaveLength(1);
+    expect(approvedOfferRes.body.data.offers[0].offeredPricePaise).toBe(820000);
+  });
+
+  it('supports querying catalog listings with status=all, specific status filter, and default active filter', async () => {
+    const seller = await UserModel.create({
+      email: 'catalogue_seller@fixme.com',
+      fullName: 'Spares Depot',
+      passwordHash: 'dummy',
+      role: 'seller',
+      isActive: true,
+    });
+
+    const category = await CategoryModel.create({
+      name: 'Screens',
+      slug: 'screens-test',
+      isActive: true,
+    });
+
+    const brand = await BrandModel.create({
+      name: 'Samsung',
+      slug: 'samsung-test',
+      isActive: true,
+    });
+
+    const part = await PartModel.create({
+      name: 'Galaxy S21 Ultra AMOLED',
+      partNumber: 'SAM-S21U-DISP',
+      componentType: 'display',
+      categoryId: category._id,
+      brandId: brand._id,
+      description: 'OEM display unit',
+    });
+
+    // Create 3 listings with different statuses
+    const listing1 = await ListingModel.create({
+      partId: part._id,
+      sellerId: seller._id,
+      sellerSku: 'SKU-PENDING-001',
+      title: 'Galaxy S21 Ultra AMOLED Screen Pending',
+      pricePaise: 1200000,
+      stockAvailable: 5,
+      stockReserved: 0,
+      condition: 'new',
+      status: 'pending_review',
+    });
+
+    const listing2 = await ListingModel.create({
+      partId: part._id,
+      sellerId: seller._id,
+      sellerSku: 'SKU-ACTIVE-002',
+      title: 'Galaxy S21 Ultra AMOLED Screen Active',
+      pricePaise: 1150000,
+      stockAvailable: 10,
+      stockReserved: 0,
+      condition: 'new',
+      status: 'active',
+    });
+
+    const listing3 = await ListingModel.create({
+      partId: part._id,
+      sellerId: seller._id,
+      sellerSku: 'SKU-SUSPENDED-003',
+      title: 'Galaxy S21 Ultra AMOLED Screen Suspended',
+      pricePaise: 1100000,
+      stockAvailable: 2,
+      stockReserved: 0,
+      condition: 'refurbished',
+      status: 'suspended',
+    });
+
+    // 1. GET /api/v1/listings?status=all returns all listings regardless of status
+    const allRes = await request(app).get('/api/v1/listings?status=all&limit=50');
+    expect(allRes.status).toBe(200);
+    expect(allRes.body.data.length).toBe(3);
+    const allIds = allRes.body.data.map((l: any) => l._id.toString());
+    expect(allIds).toContain(listing1._id.toString());
+    expect(allIds).toContain(listing2._id.toString());
+    expect(allIds).toContain(listing3._id.toString());
+
+    // 2. GET /api/v1/listings?status=pending_review returns only pending_review listings
+    const pendingRes = await request(app).get('/api/v1/listings?status=pending_review');
+    expect(pendingRes.status).toBe(200);
+    expect(pendingRes.body.data.length).toBe(1);
+    expect(pendingRes.body.data[0]._id.toString()).toBe(listing1._id.toString());
+
+    // 3. GET /api/v1/listings (no status parameter) defaults to active listings only
+    const defaultRes = await request(app).get('/api/v1/listings');
+    expect(defaultRes.status).toBe(200);
+    expect(defaultRes.body.data.length).toBe(1);
+    expect(defaultRes.body.data[0]._id.toString()).toBe(listing2._id.toString());
   });
 });
 

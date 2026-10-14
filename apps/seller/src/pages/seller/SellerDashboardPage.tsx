@@ -14,6 +14,7 @@ import {
   TrendingUp,
   ShieldCheck,
   ShieldAlert,
+  RefreshCw,
   CheckCircle2,
   FileText,
 } from 'lucide-react';
@@ -31,19 +32,30 @@ export interface DashboardSummary {
 }
 
 export const SellerDashboardPage: React.FC = () => {
-  const { user, sellerProfile } = useAuth();
+  const { user, sellerProfile, refreshSession } = useAuth();
   const navigate = useNavigate();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [pendingOrdersCount, setPendingOrdersCount] = useState<number>(0);
   const [recentListings, setRecentListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleRecheckStatus = async () => {
+    setRefreshingStatus(true);
+    try {
+      await refreshSession();
+    } finally {
+      setRefreshingStatus(false);
+    }
+  };
 
   const loadDashboardData = async () => {
     setLoading(true);
     setError(null);
     try {
+      refreshSession().catch(() => {});
       const [sumData, ordersData, listingsData] = await Promise.all([
         apiRequest<DashboardSummary>('/seller/inventory/summary').catch(() => null),
         apiRequest<any[]>('/seller/orders').catch(() => []),
@@ -175,12 +187,23 @@ export const SellerDashboardPage: React.FC = () => {
               </p>
             </div>
           </div>
-          <Link
-            to="/verification"
-            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0"
-          >
-            Review KYC Documents
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleRecheckStatus}
+              disabled={refreshingStatus}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-white hover:bg-amber-100 text-amber-900 text-xs font-semibold transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshingStatus ? 'animate-spin text-amber-700' : 'text-amber-700'}`} />
+              {refreshingStatus ? 'Checking...' : 'Re-check Status'}
+            </button>
+            <Link
+              to="/verification"
+              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0"
+            >
+              Review KYC Documents
+            </Link>
+          </div>
         </div>
       )}
 

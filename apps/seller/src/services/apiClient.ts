@@ -30,6 +30,7 @@ export class ApiClientError extends Error {
 }
 
 let csrfTokenCache: string | null = null;
+let csrfTokenPromise: Promise<string | null> | null = null;
 
 export function setCsrfToken(token: string | null): void {
   csrfTokenCache = token;
@@ -59,22 +60,66 @@ export function getCsrfToken(): string | null {
   return csrfTokenCache;
 }
 
+/**
+ * Proactively fetches a fresh CSRF token from the server with in-flight deduplication
+ */
+export async function fetchCsrfToken(): Promise<string | null> {
+  if (csrfTokenPromise) {
+    return csrfTokenPromise;
+  }
+
+  csrfTokenPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as ApiSuccessResponse<{ csrfToken: string }>;
+      if (payload.success && payload.data?.csrfToken) {
+        setCsrfToken(payload.data.csrfToken);
+        return payload.data.csrfToken;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      csrfTokenPromise = null;
+    }
+  })();
+
+  return csrfTokenPromise;
+}
+
 export async function apiRequest<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  isRetry = false
 ): Promise<T> {
+  const method = (options.method || 'GET').toUpperCase();
+  const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  const isLogout = path.includes('/auth/logout');
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  const activeCsrfToken = getCsrfToken();
-  if (
-    activeCsrfToken &&
-    options.method &&
-    !['GET', 'HEAD', 'OPTIONS'].includes(options.method.toUpperCase())
-  ) {
-    headers['X-CSRF-Token'] = activeCsrfToken;
+  if (isMutating && !isLogout) {
+    let token = getCsrfToken();
+    if (!token) {
+      token = await fetchCsrfToken();
+    }
+    if (token) {
+      headers['X-CSRF-Token'] = token;
+    }
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -83,11 +128,30 @@ export async function apiRequest<T>(
     credentials: 'include',
   });
 
-  const payload = (await response.json()) as
-    | ApiSuccessResponse<T>
-    | ApiErrorResponse;
+  let payload: (ApiSuccessResponse<T> | ApiErrorResponse) | null = null;
+  try {
+    payload = (await response.json()) as ApiSuccessResponse<T> | ApiErrorResponse;
+  } catch {
+    // Non-JSON or empty response
+  }
 
-  if (!response.ok || !payload.success) {
+  // Handle CSRF validation failure with a single controlled refresh & retry
+  if (
+    !isRetry &&
+    response.status === 403 &&
+    isMutating &&
+    !isLogout &&
+    (payload as ApiErrorResponse)?.error?.code === 'CSRF_VALIDATION_FAILED'
+  ) {
+    setCsrfToken(null);
+    const freshToken = await fetchCsrfToken();
+    if (freshToken) {
+      headers['X-CSRF-Token'] = freshToken;
+      return apiRequest<T>(path, { ...options, headers }, true);
+    }
+  }
+
+  if (!response.ok || !payload?.success) {
     const errPayload = payload as ApiErrorResponse;
     throw new ApiClientError(
       errPayload?.error?.message || `HTTP Error ${response.status}`,
@@ -98,7 +162,7 @@ export async function apiRequest<T>(
     );
   }
 
-  return payload.data;
+  return (payload as ApiSuccessResponse<T>).data;
 }
 
 export const apiFetch = apiRequest;
@@ -114,4 +178,3 @@ export function formatINRFromPaise(paise: number | undefined | null): string {
 export const healthService = {
   checkHealth: () => apiRequest<HealthCheckData>('/health'),
 };
-
