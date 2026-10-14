@@ -40,14 +40,33 @@ export const SellerLayout: React.FC = () => {
 
   if (user.role !== 'seller') {
     const crossUrl = getCrossAppUrlForRole(user.role);
-    if (crossUrl) {
-      window.location.href = crossUrl;
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white text-sm">
-          Redirecting to authorized workspace...
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-emerald-950 text-white p-6">
+        <div className="max-w-md w-full bg-emerald-900/80 p-6 rounded-xl text-center space-y-4 border border-emerald-800 shadow-xl">
+          <h2 className="text-xl font-bold text-amber-300">403 — Unauthorized Workspace</h2>
+          <p className="text-sm text-emerald-100">
+            You are signed in as <strong>{user.email}</strong> (<span className="uppercase font-semibold text-emerald-300">{user.role}</span>). The FixMe Seller Hub requires an approved seller account.
+          </p>
+          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 rounded-lg text-sm font-semibold cursor-pointer"
+            >
+              Sign Out & Switch Account
+            </button>
+            {crossUrl && (
+              <a
+                href={crossUrl}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-sm font-semibold text-emerald-100"
+              >
+                Go to {user.role} Workspace
+              </a>
+            )}
+          </div>
         </div>
-      );
-    }
+      </div>
+    );
   }
 
   return (

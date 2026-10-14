@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { apiRequest } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -86,7 +87,8 @@ function formatRupeesFromPaise(paise: number | undefined | null): string {
 }
 
 export const SellerWantedPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, sellerProfile } = useAuth();
+  const isApproved = sellerProfile?.status === 'approved';
 
   const [requests, setRequests] = useState<SellerWantedRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,6 +198,11 @@ export const SellerWantedPage: React.FC = () => {
 
   // Open Create Offer Modal
   const openSubmitOfferModal = (req: SellerWantedRequestItem) => {
+    if (!isApproved) {
+      setError(`Submitting offers is restricted to approved sellers. Your seller profile status is currently '${sellerProfile?.status || 'pending'}'.`);
+      return;
+    }
+
     const existingOffer = getMyOfferForRequest(req);
     if (existingOffer) {
       openEditOfferModal(req, existingOffer);
@@ -258,6 +265,10 @@ export const SellerWantedPage: React.FC = () => {
 
   const handleSubmitOffer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isApproved) {
+      setError(`Cannot submit offer. Your seller account status is '${sellerProfile?.status || 'pending'}'. Admin approval is required.`);
+      return;
+    }
     if (!submittingToRequest) return;
     if (!validateOfferForm()) return;
 
@@ -412,6 +423,26 @@ export const SellerWantedPage: React.FC = () => {
         </div>
       )}
 
+      {!isApproved && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 shadow-sm flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h2 className="text-sm font-bold">Seller Verification Pending</h2>
+              <p className="text-xs text-amber-800 mt-1">
+                Your account is currently in <strong>{sellerProfile?.status || 'pending'}</strong> review. You can browse open buyer requests, but submitting price quotes requires an approved seller profile.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/verification"
+            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0"
+          >
+            Review KYC Documents
+          </Link>
+        </div>
+      )}
+
       {/* Filters for Open Requests */}
       {activeTab === 'open' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -538,13 +569,22 @@ export const SellerWantedPage: React.FC = () => {
                             </button>
                           </div>
                         </div>
-                      ) : (
+                      ) : isApproved ? (
                         <button
                           onClick={() => openSubmitOfferModal(req)}
                           className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5"
                         >
                           <Send className="w-3.5 h-3.5" />
                           Submit Offer
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setError(`Submitting offers is restricted to verified sellers. Your account status is '${sellerProfile?.status || 'pending'}'.`)}
+                          title="Seller approval required to submit offers"
+                          className="px-4 py-2 rounded-lg bg-slate-200 text-slate-500 text-xs font-semibold shadow-sm flex items-center gap-1.5 cursor-not-allowed hover:bg-slate-300 transition"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          Verification Required
                         </button>
                       )}
                     </div>

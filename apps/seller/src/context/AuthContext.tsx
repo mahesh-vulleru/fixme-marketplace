@@ -9,11 +9,23 @@ export interface SellerPortalUser {
   status?: string;
 }
 
+export interface SellerRegisterInput {
+  fullName: string;
+  email: string;
+  password: string;
+  confirmPassword?: string;
+  phone?: string;
+  storeName: string;
+  businessAddress?: string;
+  acceptTerms?: boolean;
+}
+
 interface AuthContextValue {
   user: SellerPortalUser | null;
   sellerProfile: any | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<SellerPortalUser>;
+  register: (input: SellerRegisterInput) => Promise<SellerPortalUser>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
 }
@@ -49,7 +61,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string): Promise<SellerPortalUser> => {
     const data = await apiRequest<{ user: SellerPortalUser; sellerProfile?: any; csrfToken?: string }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password }),
+    });
+    if (data.csrfToken) {
+      setCsrfToken(data.csrfToken);
+    }
+    setUser(data.user);
+    setSellerProfile(data.sellerProfile || null);
+    return data.user;
+  };
+
+  const register = async (input: SellerRegisterInput): Promise<SellerPortalUser> => {
+    const data = await apiRequest<{ user: SellerPortalUser; sellerProfile?: any; csrfToken?: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...input,
+        role: 'seller',
+      }),
     });
     if (data.csrfToken) {
       setCsrfToken(data.csrfToken);
@@ -70,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, sellerProfile, loading, login, logout, refreshSession }}>
+    <AuthContext.Provider value={{ user, sellerProfile, loading, login, register, logout, refreshSession }}>
       {children}
     </AuthContext.Provider>
   );
@@ -83,4 +111,3 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
-

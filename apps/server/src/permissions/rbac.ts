@@ -119,7 +119,10 @@ export async function authenticate(
     const isMutatingMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
       req.method.toUpperCase()
     );
-    if (authSource === 'cookie' && isMutatingMethod) {
+    const isLogout =
+      req.path.endsWith('/logout') ||
+      req.originalUrl.includes('/auth/logout');
+    if (authSource === 'cookie' && isMutatingMethod && !isLogout) {
       const csrfHeader = req.headers['x-csrf-token'] as string | undefined;
       if (!verifyCsrfToken(userDoc._id.toString(), csrfHeader)) {
         throw new AppError(

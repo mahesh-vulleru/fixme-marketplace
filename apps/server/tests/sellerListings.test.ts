@@ -15,7 +15,7 @@ describe('Seller Listings & Inventory Management Module', () => {
   const app = createApp();
 
   beforeAll(async () => {
-    const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/fixme_test';
+    const uri = process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/fixme_test';
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(uri);
     }

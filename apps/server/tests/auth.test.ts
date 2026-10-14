@@ -16,7 +16,7 @@ describe('Phase 3 — Accounts, RBAC, CSRF Defense & Moderation', () => {
   const app = createApp();
 
   beforeAll(async () => {
-    const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/fixme_test';
+    const uri = process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017/fixme_test';
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(uri);
     }
@@ -437,6 +437,95 @@ describe('Phase 3 — Accounts, RBAC, CSRF Defense & Moderation', () => {
 
     expect(disputesRes.status).toBe(200);
     expect(Array.isArray(disputesRes.body.data)).toBe(true);
+  });
+
+  it('fetches CSRF token via GET /api/v1/auth/csrf-token and permits cookie logout without CSRF header', async () => {
+    const user = await UserModel.create({
+      email: 'csrftest@fixme.com',
+      fullName: 'CSRF Tester',
+      passwordHash: 'dummy',
+      role: 'customer',
+      isActive: true,
+    });
+    const sessionToken = signSessionToken({
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      fullName: user.fullName,
+    });
+
+    // 1. Fetch CSRF token via dedicated endpoint
+    const csrfRes = await request(app)
+      .get('/api/v1/auth/csrf-token')
+      .set('Cookie', [`fixme_session=${sessionToken}`]);
+
+    expect(csrfRes.status).toBe(200);
+    expect(csrfRes.body.data.csrfToken).toBeDefined();
+    expect(typeof csrfRes.body.data.csrfToken).toBe('string');
+
+    // 2. Logout using cookie WITHOUT X-CSRF-Token header should succeed and clear cookie
+    const logoutRes = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('Cookie', [`fixme_session=${sessionToken}`]);
+
+    expect(logoutRes.status).toBe(200);
+    expect(logoutRes.body.data.loggedOut).toBe(true);
+  });
+
+  it('updates seller profile via PATCH /api/v1/seller/profile and allows resubmitting application via POST /api/v1/seller/apply without 409 conflict', async () => {
+    const seller = await UserModel.create({
+      email: 'storeseller@fixme.com',
+      fullName: 'Store Owner',
+      passwordHash: 'dummy',
+      role: 'seller',
+      isActive: true,
+    });
+    const sessionToken = signSessionToken({
+      id: seller._id.toString(),
+      email: seller.email,
+      role: seller.role,
+      fullName: seller.fullName,
+    });
+
+    // Initial seller application
+    const applyRes1 = await request(app)
+      .post('/api/v1/seller/apply')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .send({
+        storeName: 'Original Electronics Hub',
+        businessAddress: '123 Market Street, Bengaluru',
+        gstin: '29AABCU9603R1ZM',
+      });
+
+    expect(applyRes1.status).toBe(201);
+    expect(applyRes1.body.data.storeName).toBe('Original Electronics Hub');
+    expect(applyRes1.body.data.status).toBe('pending');
+
+    // Resubmission via POST /seller/apply updates existing application instead of 409
+    const applyRes2 = await request(app)
+      .post('/api/v1/seller/apply')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .send({
+        storeName: 'Updated Electronics Hub',
+        businessAddress: '456 Commercial Road, Bengaluru',
+        panNumber: 'AABCU9603R',
+      });
+
+    expect(applyRes2.status).toBe(201);
+    expect(applyRes2.body.data.storeName).toBe('Updated Electronics Hub');
+
+    // PATCH /seller/profile updates store settings
+    const patchRes = await request(app)
+      .patch('/api/v1/seller/profile')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .send({
+        storeName: 'Final Verified Spares',
+        gstin: '29AABCU9603R1ZN',
+      });
+
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.data.storeName).toBe('Final Verified Spares');
+    expect(patchRes.body.data.gstin).toBe('29AABCU9603R1ZN');
   });
 });
 

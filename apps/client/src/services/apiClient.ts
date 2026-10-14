@@ -33,9 +33,29 @@ let csrfTokenCache: string | null = null;
 
 export function setCsrfToken(token: string | null): void {
   csrfTokenCache = token;
+  if (token) {
+    try {
+      sessionStorage.setItem('fixme_csrf_token', token);
+    } catch {
+      // ignore
+    }
+  } else {
+    try {
+      sessionStorage.removeItem('fixme_csrf_token');
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function getCsrfToken(): string | null {
+  if (!csrfTokenCache) {
+    try {
+      csrfTokenCache = sessionStorage.getItem('fixme_csrf_token');
+    } catch {
+      // ignore
+    }
+  }
   return csrfTokenCache;
 }
 
@@ -48,12 +68,13 @@ export async function apiRequest<T>(
     ...((options.headers as Record<string, string>) || {}),
   };
 
+  const activeCsrfToken = getCsrfToken();
   if (
-    csrfTokenCache &&
+    activeCsrfToken &&
     options.method &&
     !['GET', 'HEAD', 'OPTIONS'].includes(options.method.toUpperCase())
   ) {
-    headers['X-CSRF-Token'] = csrfTokenCache;
+    headers['X-CSRF-Token'] = activeCsrfToken;
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {

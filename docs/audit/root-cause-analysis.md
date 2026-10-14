@@ -135,3 +135,71 @@ This document records the confirmed defects identified during the audit, the rep
 - **Verification Result:** PASS (5 concurrent requests: exactly 2 succeeded, 3 rejected, final stock = 0).
 - **Remaining Risk:** None. Enforced directly at the MongoDB database engine layer.
 
+---
+
+### Issue 6: Cross-Port Localhost Cookie Sharing Causing Auto-Redirect Trap & Unauthorized Subroute Fetch Errors
+
+- **Issue ID:** DEF-006
+- **Severity:** High
+- **Affected Feature:** Multi-portal access (`apps/admin` port 5174, `apps/seller` port 5175, `apps/client` port 5173).
+- **Steps to Reproduce:**
+  1. Log into `http://localhost:5173` as a customer.
+  2. In the same browser, navigate to `http://localhost:5174/login` or `http://localhost:5175/login`.
+- **Expected Behavior:** User can view the login page, switch accounts, or sign into their staff/seller account.
+- **Actual Behavior:** 
+  1. The login pages' `useEffect` immediately invoked `window.location.href = crossUrl`, kicking the user back to `:5173`.
+  2. If a subroute was directly opened (e.g. `:5175/listings`), child components fired requests (`/listings/mine`) carrying the customer cookie, resulting in `403 FORBIDDEN_ROLE: Role 'customer' does not have permission`.
+- **Evidence:** Browser console reported repeated `403 (Forbidden)` and user reported `Role 'customer' does not have permission` on seller and admin screens.
+- **Root Cause:** All frontends share the `fixme_session` cookie on `localhost`. Frontends unconditionally auto-redirected non-matching roles away from `LoginPage`, trapping users from signing into their legitimate roles, while layouts mounted `<Outlet />` before role verification finished.
+- **Minimal Safe Fix:**
+  1. In `apps/admin/src/pages/LoginPage.tsx` and `apps/seller/src/pages/LoginPage.tsx`, removed unconditional auto-redirect for mismatched roles; rendered an interactive "Switch Account / Sign Out Current Session" prompt while permitting sign-in.
+  2. In `apps/admin/src/layouts/AdminLayout.tsx` and `apps/seller/src/layouts/SellerLayout.tsx`, replaced blind `window.location.href` redirects with an explicit Access Barrier screen without rendering `<Outlet />`, preventing unauthorized nested API calls.
+- **Regression Test:** Monorepo typecheck, build, and automated authentication test suite verified.
+- **Verification Result:** PASS.
+
+---
+
+### Issue 7: In-Memory CSRF Token Cache Causing Stale / Missing X-CSRF-Token Headers on Page Refresh & Logout Block
+
+- **Issue ID:** DEF-007
+- **Severity:** High
+- **Affected Feature:** State-changing mutations (POST/PUT/PATCH/DELETE) and session termination (`POST /api/v1/auth/logout`).
+- **Steps to Reproduce:**
+  1. Refresh the browser page or open a new browser tab with an active session cookie.
+  2. Immediately perform a mutation or attempt to log out before `refreshSession()` completed.
+- **Expected Behavior:** Mutation includes valid CSRF header; logout succeeds unconditionally.
+- **Actual Behavior:** Mutation and logout requests returned `403 CSRF_VALIDATION_FAILED: Missing or invalid X-CSRF-Token header for cookie-authenticated mutation`.
+- **Evidence:** Browser console reported failed `POST /api/v1/auth/logout` with 403 Forbidden.
+- **Root Cause:**
+  1. Frontends held `csrfTokenCache` strictly in-memory in `apiClient.ts`. On page reload, the cache was null until `refreshSession()` settled.
+  2. Backend `rbac.ts` enforced CSRF validation on all state-changing methods including `POST /auth/logout`, preventing users from clearing an invalid or out-of-sync session.
+- **Minimal Safe Fix:**
+  1. Exempted `POST /auth/logout` from CSRF token verification in `rbac.ts`.
+  2. Added dedicated `GET /api/v1/auth/csrf-token` endpoint for session recovery.
+  3. Updated `apiClient.ts` across `apps/client`, `apps/admin`, and `apps/seller` to persist and retrieve the CSRF token from `sessionStorage` (`fixme_csrf_token`).
+- **Regression Test:** Verified in `tests/auth.test.ts` ("fetches CSRF token via GET /api/v1/auth/csrf-token and permits cookie logout without CSRF header").
+- **Verification Result:** PASS.
+
+---
+
+### Issue 8: Seller KYC Application 409 Conflict on Existing Profile & Admin Moderation Model Mismatch
+
+- **Issue ID:** DEF-008
+- **Severity:** Medium
+- **Affected Feature:** Seller KYC application re-submission, store profile updates, and admin KYC moderation queue.
+- **Steps to Reproduce:**
+  1. Register as a seller or submit initial KYC application via `POST /api/v1/seller/apply`.
+  2. Update or re-submit business details.
+  3. Open `http://localhost:5174/admin/moderation`.
+- **Expected Behavior:** Profile updates smoothly; admin moderation displays store details and approval buttons.
+- **Actual Behavior:** 
+  1. Submitting again threw `409 SELLER_PROFILE_EXISTS`.
+  2. Admin moderation displayed undefined values due to property mismatch (`s.approvalStatus` vs `s.status`, `s.legalBusinessName` vs `s.storeName`).
+- **Minimal Safe Fix:**
+  1. Updated `AuthService.applyForSeller` to update existing application details when present instead of throwing 409.
+  2. Added `PATCH /api/v1/seller/profile` endpoint and service method for store settings updates.
+  3. Corrected `AdminModerationPage.tsx` to read `s.status`, `s.userId?.fullName`, `s.userId?.email`, `s.businessAddress`, and added status filtering and listing moderation improvements.
+  4. Enhanced `SellerProfilePage.tsx` and `SellerVerificationPage.tsx` with live KYC badges and interactive profile updates.
+- **Regression Test:** Verified in `tests/auth.test.ts` ("updates seller profile via PATCH /api/v1/seller/profile and allows resubmitting application via POST /api/v1/seller/apply without 409 conflict").
+- **Verification Result:** PASS.
+

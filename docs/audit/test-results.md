@@ -9,8 +9,8 @@
 
 ```
 Test Files  8 passed (8)
-     Tests  28 passed (28)
-  Duration  15.78s
+     Tests  30 passed (30)
+  Duration  16.69s
 ```
 
 All 8 automated integration test suites executed with **0 errors, 0 failures, and 0 skipped tests**.
@@ -42,8 +42,17 @@ All 8 automated integration test suites executed with **0 errors, 0 failures, an
 - **Status:** **PASS** (1/1 tests, 4.1s)
 
 ### 4. `apps/server/tests/auth.test.ts`
-- **Scope:** Public customer registration, admin role injection prevention, login, session cookies, rate-limiting, and password recovery.
-- **Status:** **PASS** (4/4 tests, 2.9s)
+- **Scope:** Public customer registration, admin role injection prevention, login, session cookies, rate-limiting, password recovery, dedicated CSRF token endpoint, CSRF exemption on cookie logout, and seller profile update/resubmission without 409 conflict.
+- **Status:** **PASS** (6/6 tests, 3.2s)
+- **Key Assertions:**
+  - Registration succeeds with role `customer`, sets `fixme_session` cookie.
+  - Public registration rejects elevated roles (`administrator`).
+  - Public registration supports `role: 'seller'` creating initial pending `SellerProfile`.
+  - `GET /api/v1/auth/csrf-token` returns HMAC-verified token.
+  - `POST /api/v1/auth/logout` succeeds and clears cookies even without `X-CSRF-Token` header.
+  - `PATCH /api/v1/seller/profile` updates store attributes.
+  - `POST /api/v1/seller/apply` updates existing pending application without `409 SELLER_PROFILE_EXISTS` conflict.
+  - Admin disputes list populates without `strictPopulate` error.
 
 ### 5. `apps/server/tests/catalogue.test.ts`
 - **Scope:** Catalogue seeding, category/brand lookup, structured device compatibility verification, integer-paise listing validation, and upload-intent pattern.
@@ -71,7 +80,19 @@ All 8 automated integration test suites executed with **0 errors, 0 failures, an
 | `@fixme/validation` | **PASS** (0 errors) | **PASS** (dist generated) |
 | `@fixme/api-contracts` | **PASS** (0 errors) | **PASS** (dist generated) |
 | `@fixme/server` | **PASS** (0 errors) | **PASS** (dist generated) |
-| `@fixme/client` | **PASS** (0 errors) | **PASS** (`dist/index.html`, 278 kB bundle) |
-| `@fixme/admin` | **PASS** (0 errors) | **PASS** (`dist/index.html`, 209 kB bundle) |
-| `@fixme/seller` | **PASS** (0 errors) | **PASS** (`dist/index.html`, 304 kB bundle) |
+| `@fixme/client` | **PASS** (0 errors) | **PASS** (`dist/index.html`, 282.74 kB bundle) |
+| `@fixme/admin` | **PASS** (0 errors) | **PASS** (`dist/index.html`, 218.68 kB bundle) |
+| `@fixme/seller` | **PASS** (0 errors) | **PASS** (`dist/index.html`, 329.49 kB bundle) |
+
+---
+
+## 4. Dedicated Authentication & Registration Verification
+
+| Target App | Port | Dedicated Pages | Verification Findings | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `apps/client` | 5173 | `/login`, `/register` | Clean separation with show/hide password, forgot-password link, consent checkboxes, field-level validation, and seller hub redirection links. | **PASS** |
+| `apps/seller` | 5175 | `/login`, `/register` | Dedicated seller portal registration capturing storeName, businessAddress, KYC pending notice, and links to customer store and seller sign-in. | **PASS** |
+| `apps/admin` | 5174 | `/login` | Public registration strictly prohibited banner, cross-app role switcher, and credential isolation. | **PASS** |
+| `apps/server` | 5000 | `/api/v1/auth/*` | Isolated test DB (`fixme_test`) prevents deletion of dev users; empirical registration and subsequent login pass with status 200. | **PASS** |
+| Seller KYC Boundaries | 5175 | Dashboard, Listings, Wanted | Unapproved/pending sellers receive prominent verification banners and cannot publish listings or submit bids on wanted spare parts. | **PASS** |
 

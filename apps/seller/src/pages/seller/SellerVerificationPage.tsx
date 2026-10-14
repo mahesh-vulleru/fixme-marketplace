@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 
@@ -11,6 +11,15 @@ export const SellerVerificationPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (sellerProfile) {
+      if (sellerProfile.storeName) setStoreName(sellerProfile.storeName);
+      if (sellerProfile.gstin) setGstin(sellerProfile.gstin);
+      if (sellerProfile.panNumber) setPanNumber(sellerProfile.panNumber);
+      if (sellerProfile.businessAddress) setBusinessAddress(sellerProfile.businessAddress);
+    }
+  }, [sellerProfile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

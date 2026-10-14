@@ -13,6 +13,7 @@ import {
   ArrowRight,
   TrendingUp,
   ShieldCheck,
+  ShieldAlert,
   CheckCircle2,
   FileText,
 } from 'lucide-react';
@@ -135,13 +136,24 @@ export const SellerDashboardPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/listings/create"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold shadow transition"
-          >
-            <PlusCircle className="w-4 h-4" />
-            Create Listing
-          </Link>
+          {sellerProfile?.status === 'approved' ? (
+            <Link
+              to="/listings/create"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold shadow transition"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Create Listing
+            </Link>
+          ) : (
+            <Link
+              to="/verification"
+              title="Verification required to create listings"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500/80 hover:bg-amber-500 text-white text-xs font-bold shadow transition"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Verification Required
+            </Link>
+          )}
           <Link
             to="/inventory"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-sm transition"
@@ -151,6 +163,26 @@ export const SellerDashboardPage: React.FC = () => {
           </Link>
         </div>
       </div>
+
+      {sellerProfile?.status !== 'approved' && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 shadow-sm flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h2 className="text-sm font-bold">Seller Verification Pending</h2>
+              <p className="text-xs text-amber-800 mt-1">
+                Your merchant account status is <strong>{sellerProfile?.status || 'pending'}</strong>. To safeguard marketplace buyers, creating new listings and submitting offers on wanted parts are restricted until your KYC business documents are verified by administrators.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/verification"
+            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0"
+          >
+            Review KYC Documents
+          </Link>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2 shadow-sm">

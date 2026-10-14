@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { apiRequest } from '../../services/apiClient';
+import { useAuth } from '../../context/AuthContext';
 import {
   Search,
   CheckCircle2,
@@ -29,6 +30,8 @@ export interface CanonicalPartItem {
 
 export const SellerCreateListingPage: React.FC = () => {
   const navigate = useNavigate();
+  const { sellerProfile } = useAuth();
+  const isApproved = sellerProfile?.status === 'approved';
 
   // Canonical Part State & Search
   const [canonicalParts, setCanonicalParts] = useState<CanonicalPartItem[]>([]);
@@ -174,6 +177,10 @@ export const SellerCreateListingPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isApproved) {
+      setError(`Cannot create listing. Your seller profile status is currently '${sellerProfile?.status || 'pending'}'. Administrator KYC approval is required.`);
+      return;
+    }
     if (!validate()) return;
 
     setSubmitting(true);
@@ -250,6 +257,26 @@ export const SellerCreateListingPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800 flex items-center gap-2 shadow-sm font-semibold">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>{successMessage}</span>
+        </div>
+      )}
+
+      {!isApproved && (
+        <div className="p-5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h2 className="text-sm font-bold text-amber-950">Application Pending Verification</h2>
+              <p className="text-xs text-amber-800 mt-1">
+                Your merchant profile is currently in <strong>{sellerProfile?.status || 'pending'}</strong> review. Only verified sellers with approved business KYC documents can publish live spare parts listings.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/verification"
+            className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 self-start sm:self-center transition shadow-sm"
+          >
+            Go to KYC Verification &rarr;
+          </Link>
         </div>
       )}
 
@@ -585,10 +612,11 @@ export const SellerCreateListingPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={submitting}
-              className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer"
+              disabled={submitting || !isApproved}
+              title={!isApproved ? 'Seller account must be approved to publish listings' : undefined}
+              className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              {submitting ? 'Publishing...' : 'Publish Listing'}
+              {submitting ? 'Publishing...' : !isApproved ? 'Verification Required' : 'Publish Listing'}
             </button>
           </div>
         </div>

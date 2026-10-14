@@ -1164,6 +1164,8 @@ export class SellerTrustService {
     notes?: string;
     listingId?: string;
   }): Promise<IWantedRequestDocument> {
+    await this.requireApprovedSeller(params.sellerId);
+
     const wanted = await WantedRequestModel.findById(params.wantedRequestId);
     if (!wanted || wanted.status !== 'open') {
       throw new AppError(404, 'WANTED_REQUEST_NOT_OPEN', 'Wanted request not found or is closed');

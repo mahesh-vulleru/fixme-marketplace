@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/authService';
-import { SESSION_COOKIE_NAME } from '../permissions/rbac';
+import { SESSION_COOKIE_NAME, generateCsrfToken } from '../permissions/rbac';
 import { env } from '../config/env';
 import { AppError } from '../middleware/errorHandler';
 
@@ -201,6 +201,15 @@ export class AuthController {
     }
   }
 
+  static async getCsrfToken(req: Request, res: Response): Promise<void> {
+    const token = generateCsrfToken(req.user!.id);
+    res.status(200).json({
+      success: true,
+      data: { csrfToken: token },
+      requestId: req.requestId,
+    });
+  }
+
   static async getSellerProfile(
     req: Request,
     res: Response,
@@ -208,6 +217,27 @@ export class AuthController {
   ): Promise<void> {
     try {
       const profile = await AuthService.getSellerProfile(req.user!.id);
+      res.status(200).json({
+        success: true,
+        data: profile,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async updateSellerProfile(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const profile = await AuthService.updateSellerProfile(
+        req.user!.id,
+        req.body,
+        req.requestId
+      );
       res.status(200).json({
         success: true,
         data: profile,

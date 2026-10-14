@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiRequest } from '../../services/apiClient';
 
 export const AdminUsersPage: React.FC = () => {
@@ -60,11 +61,19 @@ export const AdminUsersPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">User & Seller Management</h2>
-        <p className="text-sm text-slate-600 mt-1">
-          Review accounts, assign authorized RBAC roles, and activate or suspend platform access.
-        </p>
+      <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">User & Seller Management</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Review accounts, assign authorized RBAC roles, and activate or suspend platform access.
+          </p>
+        </div>
+        <Link
+          to="/admin/moderation"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 self-start sm:self-auto"
+        >
+          Review Seller KYC Applications &rarr;
+        </Link>
       </div>
 
       {error && <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{error}</div>}

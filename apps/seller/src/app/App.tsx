@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '../context/AuthContext';
 import { SellerLayout } from '../layouts/SellerLayout';
 import { LoginPage } from '../pages/LoginPage';
+import { RegisterPage } from '../pages/RegisterPage';
 import { SellerDashboardPage } from '../pages/seller/SellerDashboardPage';
 import { SellerListingsPage } from '../pages/seller/SellerListingsPage';
 import { SellerInventoryPage } from '../pages/seller/SellerInventoryPage';
@@ -21,6 +22,7 @@ export const App: React.FC = () => {
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
           <Route path="/" element={<SellerLayout />}>
             <Route index element={<SellerDashboardPage />} />
             <Route path="listings" element={<SellerListingsPage />} />

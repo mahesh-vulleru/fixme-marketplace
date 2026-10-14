@@ -29,27 +29,30 @@ export const AdminLayout: React.FC = () => {
 
   if (!ADMIN_ROLES.includes(user.role)) {
     const crossUrl = getCrossAppUrlForRole(user.role);
-    if (crossUrl) {
-      window.location.href = crossUrl;
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white text-sm">
-          Redirecting to authorized workspace...
-        </div>
-      );
-    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
-        <div className="max-w-md bg-slate-800 p-6 rounded-xl text-center space-y-4">
-          <h2 className="text-xl font-bold text-rose-400">403 — Unauthorized Access</h2>
+        <div className="max-w-md w-full bg-slate-800 p-6 rounded-xl text-center space-y-4 border border-slate-700 shadow-xl">
+          <h2 className="text-xl font-bold text-rose-400">403 — Unauthorized Workspace</h2>
           <p className="text-sm text-slate-300">
-            Your account ({user.email}) does not possess staff or administrator privileges.
+            You are signed in as <strong>{user.email}</strong> (<span className="uppercase font-semibold text-amber-300">{user.role}</span>). This operations console requires administrator or staff privileges.
           </p>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 rounded-lg text-sm font-semibold"
-          >
-            Sign Out
-          </button>
+          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 rounded-lg text-sm font-semibold cursor-pointer"
+            >
+              Sign Out & Switch Account
+            </button>
+            {crossUrl && (
+              <a
+                href={crossUrl}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold text-slate-200"
+              >
+                Go to {user.role} Workspace
+              </a>
+            )}
+          </div>
         </div>
       </div>
     );

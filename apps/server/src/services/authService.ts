@@ -344,11 +344,29 @@ export class AuthService {
   ): Promise<ISellerProfileDocument> {
     const existing = await SellerProfileModel.findOne({ userId });
     if (existing) {
-      throw new AppError(
-        409,
-        'SELLER_PROFILE_EXISTS',
-        'A seller application already exists for this user'
-      );
+      if (input.storeName) existing.storeName = input.storeName.trim();
+      if (input.gstin !== undefined) existing.gstin = input.gstin ? input.gstin.trim() : undefined;
+      if (input.panNumber !== undefined) existing.panNumber = input.panNumber ? input.panNumber.trim() : undefined;
+      if (input.businessAddress) existing.businessAddress = input.businessAddress.trim();
+      if (input.verificationDocumentAssetIds) {
+        existing.verificationDocumentAssetIds = input.verificationDocumentAssetIds as any;
+      }
+      if (existing.status === 'rejected') {
+        existing.status = 'pending';
+      }
+      await existing.save();
+
+      await AuditLogModel.create({
+        actorId: userId,
+        actorRole: 'customer',
+        action: 'SELLER_APPLICATION_UPDATED',
+        entityType: 'SellerProfile',
+        entityId: existing._id.toString(),
+        metadata: { storeName: existing.storeName, status: existing.status },
+        requestId,
+      });
+
+      return existing;
     }
 
     const baseSlug = input.storeName
@@ -359,11 +377,11 @@ export class AuthService {
 
     const profile = await SellerProfileModel.create({
       userId,
-      storeName: input.storeName,
+      storeName: input.storeName.trim(),
       storeSlug,
-      gstin: input.gstin,
-      panNumber: input.panNumber,
-      businessAddress: input.businessAddress,
+      gstin: input.gstin ? input.gstin.trim() : undefined,
+      panNumber: input.panNumber ? input.panNumber.trim() : undefined,
+      businessAddress: input.businessAddress.trim(),
       verificationDocumentAssetIds: input.verificationDocumentAssetIds || [],
       status: 'pending',
     });
@@ -375,6 +393,49 @@ export class AuthService {
       entityType: 'SellerProfile',
       entityId: profile._id.toString(),
       metadata: { storeName: input.storeName },
+      requestId,
+    });
+
+    return profile;
+  }
+
+  static async updateSellerProfile(
+    userId: string,
+    input: {
+      storeName?: string;
+      gstin?: string;
+      panNumber?: string;
+      businessAddress?: string;
+      verificationDocumentAssetIds?: string[];
+    },
+    requestId?: string
+  ): Promise<ISellerProfileDocument> {
+    const profile = await SellerProfileModel.findOne({ userId });
+    if (!profile) {
+      throw new AppError(404, 'SELLER_PROFILE_NOT_FOUND', 'Seller profile not found');
+    }
+
+    if (input.storeName !== undefined && input.storeName.trim()) {
+      profile.storeName = input.storeName.trim();
+    }
+    if (input.gstin !== undefined) profile.gstin = input.gstin.trim() || undefined;
+    if (input.panNumber !== undefined) profile.panNumber = input.panNumber.trim() || undefined;
+    if (input.businessAddress !== undefined && input.businessAddress.trim()) {
+      profile.businessAddress = input.businessAddress.trim();
+    }
+    if (input.verificationDocumentAssetIds !== undefined) {
+      profile.verificationDocumentAssetIds = input.verificationDocumentAssetIds as any;
+    }
+
+    await profile.save();
+
+    await AuditLogModel.create({
+      actorId: userId,
+      actorRole: 'seller',
+      action: 'SELLER_PROFILE_UPDATED',
+      entityType: 'SellerProfile',
+      entityId: profile._id.toString(),
+      metadata: { storeName: profile.storeName },
       requestId,
     });
 

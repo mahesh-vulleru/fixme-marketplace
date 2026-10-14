@@ -37,6 +37,7 @@ router.post(
 );
 router.post('/auth/logout', authenticate, AuthController.logout);
 router.get('/auth/me', authenticate, AuthController.getMe);
+router.get('/auth/csrf-token', authenticate, AuthController.getCsrfToken);
 router.post(
   '/auth/forgot-password',
   authRateLimiter,
@@ -76,6 +77,20 @@ router.delete('/wishlist/:listingId', authenticate, AuthController.removeWishlis
 
 // Seller KYC Application & Profile
 router.get('/seller/profile', authenticate, AuthController.getSellerProfile);
+router.patch(
+  '/seller/profile',
+  authenticate,
+  validateBody(
+    z.object({
+      storeName: z.string().min(3).max(80).optional(),
+      gstin: z.string().min(10).max(20).optional(),
+      panNumber: z.string().min(10).max(10).optional(),
+      businessAddress: z.string().min(10).max(300).optional(),
+      verificationDocumentAssetIds: z.array(z.string()).optional(),
+    })
+  ),
+  AuthController.updateSellerProfile
+);
 router.post(
   '/seller/apply',
   authenticate,
